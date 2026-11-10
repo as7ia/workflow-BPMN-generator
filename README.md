@@ -37,8 +37,23 @@ python -m uvicorn app.main:app --reload
 The API is available at `http://127.0.0.1:8000`. Useful routes:
 
 - Health check: `http://127.0.0.1:8000/api/v1/health`
+- JSON-to-BPMN generation: `POST http://127.0.0.1:8000/api/v1/generate-from-json`
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - OpenAPI schema: `http://127.0.0.1:8000/openapi.json`
+
+The generation endpoint accepts a `ProcessModel` schema 1.0 JSON document and
+returns fully validated semantic BPMN XML with BPMN DI:
+
+```json
+{
+  "status": "success",
+  "bpmn_xml": "<?xml version='1.0' encoding='utf-8'?>..."
+}
+```
+
+Request bodies default to a 1 MiB limit. Layout execution defaults to a
+10-second timeout and at most two concurrent Node workers per application
+instance. These settings can be changed through `create_app()` arguments.
 
 ## Tests
 

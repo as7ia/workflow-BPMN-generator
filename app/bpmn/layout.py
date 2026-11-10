@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ _BPMNDI = "http://www.omg.org/spec/BPMN/20100524/DI"
 _DC = "http://www.omg.org/spec/DD/20100524/DC"
 _DI = "http://www.omg.org/spec/DD/20100524/DI"
 _DEFAULT_MAX_INPUT_BYTES = 5 * 1024 * 1024
+_DEFAULT_MAX_OUTPUT_BYTES = 20 * 1024 * 1024
 _WORKER_PATH = Path(__file__).with_name("layout_worker") / "worker.mjs"
 
 _SHAPE_TAGS = {
@@ -199,8 +201,14 @@ def _validate_di(
         )
 
 
-def _run_worker(xml: str, timeout_seconds: float) -> dict[str, Any]:
+def _run_worker(
+    xml: str,
+    timeout_seconds: float,
+    max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
+) -> dict[str, Any]:
     command = ["node", str(_WORKER_PATH)]
+    worker_environment = os.environ.copy()
+    worker_environment["BPMN_LAYOUT_MAX_OUTPUT_BYTES"] = str(max_output_bytes)
     try:
         process = subprocess.Popen(
             command,
@@ -210,6 +218,7 @@ def _run_worker(xml: str, timeout_seconds: float) -> dict[str, Any]:
             text=True,
             encoding="utf-8",
             shell=False,
+            env=worker_environment,
         )
     except OSError as error:
         raise BpmnLayoutError(
@@ -254,10 +263,15 @@ def layout_bpmn(
     timeout_seconds: float = 10.0,
     *,
     max_input_bytes: int = _DEFAULT_MAX_INPUT_BYTES,
+    max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
 ) -> str:
     """Add complete collapsed-subprocess BPMN DI using an isolated Node worker."""
     if timeout_seconds <= 0:
         raise BpmnLayoutError("invalid_timeout", "timeout_seconds must be positive.")
+    if max_input_bytes <= 0 or max_output_bytes <= 0:
+        raise BpmnLayoutError(
+            "invalid_size_limit", "BPMN input and output limits must be positive."
+        )
     input_size = len(xml.encode("utf-8"))
     if input_size > max_input_bytes:
         raise BpmnLayoutError(
@@ -271,7 +285,7 @@ def layout_bpmn(
     _reject_expanded_subprocesses(original_root, subprocess_ids)
     original_semantics = _semantic_elements(original_root)
 
-    payload = _run_worker(xml, timeout_seconds)
+    payload = _run_worker(xml, timeout_seconds, max_output_bytes)
     warnings = payload.get("warnings")
     if not isinstance(warnings, list):
         raise BpmnLayoutError(
