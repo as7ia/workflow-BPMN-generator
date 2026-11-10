@@ -1,0 +1,8 @@
+{
+  "name": "bpmn-auto-layout-feasibility-stable",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "bpmn-auto-layout": "1.3.0"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "id": "complex_approval",
+  "name": "Complex approval with correction loop",
+  "participants": [{"id": "organization", "name": "Organization"}],
+  "lanes": [
+    {"id": "requester_lane", "name": "Requester", "participant_id": "organization"},
+    {"id": "approver_lane", "name": "Approvers", "participant_id": "organization"}
+  ],
+  "scopes": [{"id": "approval_process", "participant_id": "organization"}],
+  "nodes": [
+    {"id": "approval_start", "type": "start_event", "name": "Request initiated", "participant_id": "organization", "lane_id": "requester_lane", "scope_id": "approval_process"},
+    {"id": "submit_request", "type": "task", "name": "Submit request", "participant_id": "organization", "lane_id": "requester_lane", "scope_id": "approval_process"},
+    {"id": "check_split", "type": "parallel_gateway", "name": "Start independent checks", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"},
+    {"id": "finance_check", "type": "task", "name": "Perform financial check", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"},
+    {"id": "policy_check", "type": "task", "name": "Perform policy check", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"},
+    {"id": "check_join", "type": "parallel_gateway", "name": "Checks completed", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"},
+    {"id": "complete_decision", "type": "exclusive_gateway", "name": "Request complete", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process", "default_flow_id": "approval_to_correction"},
+    {"id": "risk_decision", "type": "exclusive_gateway", "name": "Risk acceptable", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"},
+    {"id": "approve_request", "type": "task", "name": "Approve request", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"},
+    {"id": "senior_review", "type": "task", "name": "Perform senior review", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"},
+    {"id": "decision_merge", "type": "exclusive_gateway", "name": "Approval decision completed", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"},
+    {"id": "correct_request", "type": "task", "name": "Correct and resubmit request", "participant_id": "organization", "lane_id": "requester_lane", "scope_id": "approval_process"},
+    {"id": "approval_end", "type": "end_event", "name": "Request approved", "participant_id": "organization", "lane_id": "approver_lane", "scope_id": "approval_process"}
+  ],
+  "sequence_flows": [
+    {"id": "approval_f1", "source_ref": "approval_start", "target_ref": "submit_request"},
+    {"id": "approval_f2", "source_ref": "submit_request", "target_ref": "check_split"},
+    {"id": "approval_f3", "source_ref": "check_split", "target_ref": "finance_check"},
+    {"id": "approval_f4", "source_ref": "check_split", "target_ref": "policy_check"},
+    {"id": "approval_f5", "source_ref": "finance_check", "target_ref": "check_join"},
+    {"id": "approval_f6", "source_ref": "policy_check", "target_ref": "check_join"},
+    {"id": "approval_f7", "source_ref": "check_join", "target_ref": "complete_decision"},
+    {"id": "approval_to_risk", "source_ref": "complete_decision", "target_ref": "risk_decision", "condition": "Request information is complete"},
+    {"id": "approval_to_correction", "source_ref": "complete_decision", "target_ref": "correct_request"},
+    {"id": "approval_f10", "source_ref": "correct_request", "target_ref": "submit_request"},
+    {"id": "approval_low_risk", "source_ref": "risk_decision", "target_ref": "approve_request", "condition": "Risk is acceptable"},
+    {"id": "approval_high_risk", "source_ref": "risk_decision", "target_ref": "senior_review", "condition": "Senior review is required"},
+    {"id": "approval_f13", "source_ref": "approve_request", "target_ref": "decision_merge"},
+    {"id": "approval_f14", "source_ref": "senior_review", "target_ref": "decision_merge"},
+    {"id": "approval_f15", "source_ref": "decision_merge", "target_ref": "approval_end"}
+  ]
+}

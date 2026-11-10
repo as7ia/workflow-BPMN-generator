@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "id": "complex_collaboration",
+  "name": "Three-party order collaboration",
+  "participants": [
+    {"id": "buyer", "name": "Buyer"},
+    {"id": "supplier", "name": "Supplier"},
+    {"id": "carrier", "name": "Carrier"}
+  ],
+  "lanes": [
+    {"id": "buyer_requesting", "name": "Requesting", "participant_id": "buyer"},
+    {"id": "buyer_receiving", "name": "Receiving", "participant_id": "buyer"},
+    {"id": "supplier_sales", "name": "Sales", "participant_id": "supplier"},
+    {"id": "supplier_fulfillment", "name": "Fulfillment", "participant_id": "supplier"},
+    {"id": "carrier_dispatch", "name": "Dispatch", "participant_id": "carrier"}
+  ],
+  "scopes": [
+    {"id": "buyer_process", "participant_id": "buyer"},
+    {"id": "supplier_process_complex", "participant_id": "supplier"},
+    {"id": "carrier_process", "participant_id": "carrier"}
+  ],
+  "nodes": [
+    {"id": "buyer_start", "type": "start_event", "name": "Purchase needed", "participant_id": "buyer", "lane_id": "buyer_requesting", "scope_id": "buyer_process"},
+    {"id": "buyer_send_order", "type": "task", "name": "Send purchase order", "participant_id": "buyer", "lane_id": "buyer_requesting", "scope_id": "buyer_process"},
+    {"id": "buyer_receive_confirmation", "type": "task", "name": "Receive confirmation", "participant_id": "buyer", "lane_id": "buyer_receiving", "scope_id": "buyer_process"},
+    {"id": "buyer_receive_delivery", "type": "task", "name": "Receive delivery notice", "participant_id": "buyer", "lane_id": "buyer_receiving", "scope_id": "buyer_process"},
+    {"id": "buyer_end", "type": "end_event", "name": "Order completed", "participant_id": "buyer", "lane_id": "buyer_receiving", "scope_id": "buyer_process"},
+
+    {"id": "supplier_start", "type": "start_event", "name": "Sales opened", "participant_id": "supplier", "lane_id": "supplier_sales", "scope_id": "supplier_process_complex"},
+    {"id": "supplier_receive_order", "type": "task", "name": "Receive purchase order", "participant_id": "supplier", "lane_id": "supplier_sales", "scope_id": "supplier_process_complex"},
+    {"id": "supplier_confirm_order", "type": "task", "name": "Confirm order", "participant_id": "supplier", "lane_id": "supplier_sales", "scope_id": "supplier_process_complex"},
+    {"id": "supplier_request_shipping", "type": "task", "name": "Request shipment", "participant_id": "supplier", "lane_id": "supplier_fulfillment", "scope_id": "supplier_process_complex"},
+    {"id": "supplier_end", "type": "end_event", "name": "Order released", "participant_id": "supplier", "lane_id": "supplier_fulfillment", "scope_id": "supplier_process_complex"},
+
+    {"id": "carrier_start", "type": "start_event", "name": "Dispatch opened", "participant_id": "carrier", "lane_id": "carrier_dispatch", "scope_id": "carrier_process"},
+    {"id": "carrier_receive_request", "type": "task", "name": "Receive shipment request", "participant_id": "carrier", "lane_id": "carrier_dispatch", "scope_id": "carrier_process"},
+    {"id": "carrier_dispatch_goods", "type": "task", "name": "Dispatch goods", "participant_id": "carrier", "lane_id": "carrier_dispatch", "scope_id": "carrier_process"},
+    {"id": "carrier_end", "type": "end_event", "name": "Dispatch completed", "participant_id": "carrier", "lane_id": "carrier_dispatch", "scope_id": "carrier_process"}
+  ],
+  "sequence_flows": [
+    {"id": "buyer_f1", "source_ref": "buyer_start", "target_ref": "buyer_send_order"},
+    {"id": "buyer_f2", "source_ref": "buyer_send_order", "target_ref": "buyer_receive_confirmation"},
+    {"id": "buyer_f3", "source_ref": "buyer_receive_confirmation", "target_ref": "buyer_receive_delivery"},
+    {"id": "buyer_f4", "source_ref": "buyer_receive_delivery", "target_ref": "buyer_end"},
+    {"id": "supplier_f1", "source_ref": "supplier_start", "target_ref": "supplier_receive_order"},
+    {"id": "supplier_f2", "source_ref": "supplier_receive_order", "target_ref": "supplier_confirm_order"},
+    {"id": "supplier_f3", "source_ref": "supplier_confirm_order", "target_ref": "supplier_request_shipping"},
+    {"id": "supplier_f4", "source_ref": "supplier_request_shipping", "target_ref": "supplier_end"},
+    {"id": "carrier_f1", "source_ref": "carrier_start", "target_ref": "carrier_receive_request"},
+    {"id": "carrier_f2", "source_ref": "carrier_receive_request", "target_ref": "carrier_dispatch_goods"},
+    {"id": "carrier_f3", "source_ref": "carrier_dispatch_goods", "target_ref": "carrier_end"}
+  ],
+  "message_flows": [
+    {"id": "message_order", "source_ref": "buyer_send_order", "target_ref": "supplier_receive_order", "label": "Purchase order"},
+    {"id": "message_confirmation", "source_ref": "supplier_confirm_order", "target_ref": "buyer_receive_confirmation", "label": "Order confirmation"},
+    {"id": "message_shipping", "source_ref": "supplier_request_shipping", "target_ref": "carrier_receive_request", "label": "Shipment request"},
+    {"id": "message_delivery", "source_ref": "carrier_dispatch_goods", "target_ref": "buyer_receive_delivery", "label": "Delivery notice"}
+  ]
+}

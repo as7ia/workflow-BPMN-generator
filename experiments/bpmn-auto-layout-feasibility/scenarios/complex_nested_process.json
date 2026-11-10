@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "id": "complex_nested_process",
+  "name": "Collapsed review subprocess with loop",
+  "participants": [{"id": "company_nested", "name": "Company"}],
+  "scopes": [
+    {"id": "nested_main", "participant_id": "company_nested"},
+    {"id": "detailed_review_scope", "participant_id": "company_nested", "parent_scope_id": "nested_main", "subprocess_node_id": "detailed_review"}
+  ],
+  "nodes": [
+    {"id": "nested_main_start", "type": "start_event", "name": "Case received", "participant_id": "company_nested", "scope_id": "nested_main"},
+    {"id": "detailed_review", "type": "subprocess", "name": "Perform detailed review", "participant_id": "company_nested", "scope_id": "nested_main"},
+    {"id": "nested_main_end", "type": "end_event", "name": "Case completed", "participant_id": "company_nested", "scope_id": "nested_main"},
+    {"id": "review_start", "type": "start_event", "name": "Review started", "participant_id": "company_nested", "scope_id": "detailed_review_scope"},
+    {"id": "review_case", "type": "task", "name": "Review case details", "participant_id": "company_nested", "scope_id": "detailed_review_scope"},
+    {"id": "review_decision", "type": "exclusive_gateway", "name": "Review accepted", "participant_id": "company_nested", "scope_id": "detailed_review_scope"},
+    {"id": "revise_case", "type": "task", "name": "Revise case details", "participant_id": "company_nested", "scope_id": "detailed_review_scope"},
+    {"id": "review_end", "type": "end_event", "name": "Review accepted", "participant_id": "company_nested", "scope_id": "detailed_review_scope"}
+  ],
+  "sequence_flows": [
+    {"id": "nested_main_f1", "source_ref": "nested_main_start", "target_ref": "detailed_review"},
+    {"id": "nested_main_f2", "source_ref": "detailed_review", "target_ref": "nested_main_end"},
+    {"id": "review_f1", "source_ref": "review_start", "target_ref": "review_case"},
+    {"id": "review_f2", "source_ref": "review_case", "target_ref": "review_decision"},
+    {"id": "review_accept", "source_ref": "review_decision", "target_ref": "review_end", "condition": "Review is accepted"},
+    {"id": "review_revise", "source_ref": "review_decision", "target_ref": "revise_case", "condition": "Revision is required"},
+    {"id": "review_loop", "source_ref": "revise_case", "target_ref": "review_case"}
+  ]
+}

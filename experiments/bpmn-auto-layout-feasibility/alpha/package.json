@@ -1,0 +1,11 @@
+{
+  "name": "bpmn-auto-layout-feasibility-alpha",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "bpmn-auto-layout": "2.0.0-alpha.2",
+    "bpmn-js": "18.31.1",
+    "esbuild": "0.28.2",
+    "puppeteer-core": "25.17.0"
+  }
+}
