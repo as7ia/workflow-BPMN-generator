@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0", "id": "exclusive", "name": "Exclusive decision",
+  "participants": [{"id": "company", "name": "Company"}], "lanes": [],
+  "scopes": [{"id": "main", "participant_id": "company"}],
+  "nodes": [
+    {"id": "start", "type": "start_event", "name": "Request received", "participant_id": "company", "scope_id": "main"},
+    {"id": "decision", "type": "exclusive_gateway", "name": "Request acceptable", "participant_id": "company", "scope_id": "main", "default_flow_id": "flow_reject"},
+    {"id": "approve", "type": "task", "name": "Approve request", "participant_id": "company", "scope_id": "main"},
+    {"id": "reject", "type": "task", "name": "Reject request", "participant_id": "company", "scope_id": "main"},
+    {"id": "merge", "type": "exclusive_gateway", "name": "Decision completed", "participant_id": "company", "scope_id": "main"},
+    {"id": "end", "type": "end_event", "name": "Request completed", "participant_id": "company", "scope_id": "main"}
+  ],
+  "sequence_flows": [
+    {"id": "flow_to_decision", "source_ref": "start", "target_ref": "decision"},
+    {"id": "flow_approve", "source_ref": "decision", "target_ref": "approve", "condition": "Request is acceptable"},
+    {"id": "flow_reject", "source_ref": "decision", "target_ref": "reject"},
+    {"id": "flow_approve_merge", "source_ref": "approve", "target_ref": "merge"},
+    {"id": "flow_reject_merge", "source_ref": "reject", "target_ref": "merge"},
+    {"id": "flow_end", "source_ref": "merge", "target_ref": "end"}
+  ]
+}

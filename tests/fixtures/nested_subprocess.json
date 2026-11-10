@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0", "id": "nested", "name": "Nested subprocess",
+  "participants": [{"id": "company", "name": "Company"}], "lanes": [],
+  "scopes": [
+    {"id": "main", "participant_id": "company"},
+    {"id": "verification_scope", "participant_id": "company", "parent_scope_id": "main", "subprocess_node_id": "verification"}
+  ],
+  "nodes": [
+    {"id": "main_start", "type": "start_event", "name": "Case received", "participant_id": "company", "scope_id": "main"},
+    {"id": "verification", "type": "subprocess", "name": "Verify case", "participant_id": "company", "scope_id": "main"},
+    {"id": "main_end", "type": "end_event", "name": "Case completed", "participant_id": "company", "scope_id": "main"},
+    {"id": "sub_start", "type": "start_event", "name": "Verification started", "participant_id": "company", "scope_id": "verification_scope"},
+    {"id": "check", "type": "task", "name": "Check documents", "participant_id": "company", "scope_id": "verification_scope"},
+    {"id": "sub_end", "type": "end_event", "name": "Verification completed", "participant_id": "company", "scope_id": "verification_scope"}
+  ],
+  "sequence_flows": [
+    {"id": "mf1", "source_ref": "main_start", "target_ref": "verification"}, {"id": "mf2", "source_ref": "verification", "target_ref": "main_end"},
+    {"id": "sf1", "source_ref": "sub_start", "target_ref": "check"}, {"id": "sf2", "source_ref": "check", "target_ref": "sub_end"}
+  ]
+}

@@ -2,6 +2,8 @@
 
 A minimal, modular FastAPI backend that will host a BPMN 2.0 generation engine. This initial version provides only service health checking; BPMN generation and AI integration are intentionally out of scope.
 
+The typed intermediate process representation and its deterministic validators are documented in [docs/intermediate-schema.md](docs/intermediate-schema.md). BPMN XML, diagram interchange, and AI process understanding are not implemented yet.
+
 ## Requirements
 
 - Python 3.11 or newer

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0", "id": "bad_default", "name": "Invalid default branch",
+  "participants": [{"id": "company", "name": "Company"}],
+  "scopes": [{"id": "main", "participant_id": "company"}],
+  "nodes": [
+    {"id": "start", "type": "start_event", "name": "Started", "participant_id": "company", "scope_id": "main"},
+    {"id": "choice", "type": "exclusive_gateway", "name": "Choose path", "participant_id": "company", "scope_id": "main", "default_flow_id": "not_outgoing"},
+    {"id": "end", "type": "end_event", "name": "Ended", "participant_id": "company", "scope_id": "main"}
+  ],
+  "sequence_flows": [
+    {"id": "f1", "source_ref": "start", "target_ref": "choice"},
+    {"id": "f2", "source_ref": "choice", "target_ref": "end"}
+  ]
+}

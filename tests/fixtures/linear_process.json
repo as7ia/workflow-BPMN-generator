@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0", "id": "linear", "name": "Linear approval",
+  "participants": [{"id": "company", "name": "Company"}],
+  "lanes": [{"id": "operations", "name": "Operations", "participant_id": "company"}],
+  "scopes": [{"id": "main", "participant_id": "company"}],
+  "nodes": [
+    {"id": "start", "type": "start_event", "name": "Request received", "participant_id": "company", "lane_id": "operations", "scope_id": "main"},
+    {"id": "review", "type": "task", "name": "Review request", "participant_id": "company", "lane_id": "operations", "scope_id": "main"},
+    {"id": "end", "type": "end_event", "name": "Request reviewed", "participant_id": "company", "lane_id": "operations", "scope_id": "main"}
+  ],
+  "sequence_flows": [
+    {"id": "flow_start_review", "source_ref": "start", "target_ref": "review"},
+    {"id": "flow_review_end", "source_ref": "review", "target_ref": "end"}
+  ]
+}

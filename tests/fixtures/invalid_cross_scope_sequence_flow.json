@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0", "id": "cross_scope", "name": "Cross scope flow",
+  "participants": [{"id": "company", "name": "Company"}],
+  "scopes": [
+    {"id": "main", "participant_id": "company"},
+    {"id": "child", "participant_id": "company", "parent_scope_id": "main", "subprocess_node_id": "subprocess"}
+  ],
+  "nodes": [
+    {"id": "main_start", "type": "start_event", "name": "Main started", "participant_id": "company", "scope_id": "main"},
+    {"id": "subprocess", "type": "subprocess", "name": "Perform details", "participant_id": "company", "scope_id": "main"},
+    {"id": "main_end", "type": "end_event", "name": "Main ended", "participant_id": "company", "scope_id": "main"},
+    {"id": "child_start", "type": "start_event", "name": "Details started", "participant_id": "company", "scope_id": "child"},
+    {"id": "child_task", "type": "task", "name": "Perform detail work", "participant_id": "company", "scope_id": "child"},
+    {"id": "child_end", "type": "end_event", "name": "Details ended", "participant_id": "company", "scope_id": "child"}
+  ],
+  "sequence_flows": [
+    {"id": "m1", "source_ref": "main_start", "target_ref": "subprocess"}, {"id": "m2", "source_ref": "subprocess", "target_ref": "main_end"},
+    {"id": "c1", "source_ref": "child_start", "target_ref": "child_task"}, {"id": "c2", "source_ref": "child_task", "target_ref": "child_end"},
+    {"id": "invalid_scope_jump", "source_ref": "subprocess", "target_ref": "child_task"}
+  ]
+}

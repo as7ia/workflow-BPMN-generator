@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0", "id": "collaboration", "name": "Customer and supplier collaboration",
+  "participants": [{"id": "customer", "name": "Customer"}, {"id": "supplier", "name": "Supplier"}], "lanes": [],
+  "scopes": [{"id": "customer_process", "participant_id": "customer"}, {"id": "supplier_process", "participant_id": "supplier"}],
+  "nodes": [
+    {"id": "customer_start", "type": "start_event", "name": "Need identified", "participant_id": "customer", "scope_id": "customer_process"},
+    {"id": "send_order", "type": "task", "name": "Send order", "participant_id": "customer", "scope_id": "customer_process"},
+    {"id": "customer_end", "type": "end_event", "name": "Order sent", "participant_id": "customer", "scope_id": "customer_process"},
+    {"id": "supplier_start", "type": "start_event", "name": "Sales process started", "participant_id": "supplier", "scope_id": "supplier_process"},
+    {"id": "receive_order", "type": "task", "name": "Receive order", "participant_id": "supplier", "scope_id": "supplier_process"},
+    {"id": "supplier_end", "type": "end_event", "name": "Order recorded", "participant_id": "supplier", "scope_id": "supplier_process"}
+  ],
+  "sequence_flows": [
+    {"id": "cf1", "source_ref": "customer_start", "target_ref": "send_order"}, {"id": "cf2", "source_ref": "send_order", "target_ref": "customer_end"},
+    {"id": "sf1", "source_ref": "supplier_start", "target_ref": "receive_order"}, {"id": "sf2", "source_ref": "receive_order", "target_ref": "supplier_end"}
+  ],
+  "message_flows": [{"id": "order_message", "source_ref": "send_order", "target_ref": "receive_order", "label": "Purchase order"}]
+}

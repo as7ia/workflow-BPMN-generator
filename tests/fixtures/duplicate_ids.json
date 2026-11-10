@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0", "id": "duplicates", "name": "Duplicate identifiers",
+  "participants": [{"id": "company", "name": "Company"}],
+  "scopes": [{"id": "main", "participant_id": "company"}],
+  "nodes": [
+    {"id": "start", "type": "start_event", "name": "Started", "participant_id": "company", "scope_id": "main"},
+    {"id": "task", "type": "task", "name": "Work", "participant_id": "company", "scope_id": "main"},
+    {"id": "end", "type": "end_event", "name": "Ended", "participant_id": "company", "scope_id": "main"}
+  ],
+  "sequence_flows": [
+    {"id": "repeated_flow", "source_ref": "start", "target_ref": "task"},
+    {"id": "repeated_flow", "source_ref": "task", "target_ref": "end"}
+  ]
+}

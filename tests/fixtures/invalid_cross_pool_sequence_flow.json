@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0", "id": "cross_pool", "name": "Cross pool control flow",
+  "participants": [{"id": "buyer", "name": "Buyer"}, {"id": "seller", "name": "Seller"}],
+  "scopes": [{"id": "buyer_scope", "participant_id": "buyer"}, {"id": "seller_scope", "participant_id": "seller"}],
+  "nodes": [
+    {"id": "bs", "type": "start_event", "name": "Buyer starts", "participant_id": "buyer", "scope_id": "buyer_scope"},
+    {"id": "bt", "type": "task", "name": "Place order", "participant_id": "buyer", "scope_id": "buyer_scope"},
+    {"id": "be", "type": "end_event", "name": "Buyer ends", "participant_id": "buyer", "scope_id": "buyer_scope"},
+    {"id": "ss", "type": "start_event", "name": "Seller starts", "participant_id": "seller", "scope_id": "seller_scope"},
+    {"id": "st", "type": "task", "name": "Handle order", "participant_id": "seller", "scope_id": "seller_scope"},
+    {"id": "se", "type": "end_event", "name": "Seller ends", "participant_id": "seller", "scope_id": "seller_scope"}
+  ],
+  "sequence_flows": [
+    {"id": "bf1", "source_ref": "bs", "target_ref": "bt"}, {"id": "bf2", "source_ref": "bt", "target_ref": "be"},
+    {"id": "sf1", "source_ref": "ss", "target_ref": "st"}, {"id": "sf2", "source_ref": "st", "target_ref": "se"},
+    {"id": "invalid_cross_pool", "source_ref": "bt", "target_ref": "st"}
+  ]
+}
