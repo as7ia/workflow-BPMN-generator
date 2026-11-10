@@ -23,7 +23,17 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+    "layout_integration: starts the pinned local Node.js BPMN layout worker",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.bpmn" = [
+    "layout_worker/package.json",
+    "layout_worker/package-lock.json",
+    "layout_worker/worker.mjs",
+]
 

@@ -1,0 +1,8 @@
+{
+  "name": "workflow-bpmn-layout-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "bpmn-auto-layout": "2.0.0-alpha.2"
+  }
+}

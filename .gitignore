@@ -12,6 +12,7 @@ __pycache__/
 .ruff_cache/
 build/
 dist/
+app/bpmn/layout_worker/node_modules/
 
 # Coverage
 .coverage
