@@ -13,4 +13,3 @@ __all__ = [
     "ValidationIssue",
     "validate_process_graph",
 ]
-

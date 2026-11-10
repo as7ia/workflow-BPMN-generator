@@ -107,4 +107,3 @@ BPMN XML serialization, BPMN DI shapes/edges, layout, and XML schema validation 
 python -m pytest tests/test_process_model.py
 python -m pytest
 ```
-

@@ -255,4 +255,3 @@ def test_message_flow_rejects_event_and_gateway_node_endpoints(
     data["message_flows"][0][endpoint_field] = endpoint_id
 
     assert expected_code in issue_codes(data)
-

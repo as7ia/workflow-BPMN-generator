@@ -103,4 +103,3 @@ class ProcessModel(StrictModel):
     nodes: list[ProcessNode] = Field(min_length=1)
     sequence_flows: list[SequenceFlow] = Field(default_factory=list)
     message_flows: list[MessageFlow] = Field(default_factory=list)
-
