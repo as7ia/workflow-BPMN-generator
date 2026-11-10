@@ -1,8 +1,9 @@
 # BPMN Generation API
 
-A minimal, modular FastAPI backend that will host a BPMN 2.0 generation engine. This initial version provides only service health checking; BPMN generation and AI integration are intentionally out of scope.
+A modular FastAPI backend for a BPMN 2.0 generation engine. The current implementation provides service health checking, a typed intermediate process model, deterministic graph validation, and semantic BPMN XML serialization. AI integration and BPMN DI layout are not implemented yet.
 
-The typed intermediate process representation and its deterministic validators are documented in [docs/intermediate-schema.md](docs/intermediate-schema.md). BPMN XML, diagram interchange, and AI process understanding are not implemented yet.
+The typed intermediate process representation and its deterministic validators are documented in [docs/intermediate-schema.md](docs/intermediate-schema.md).
+The semantic XML serializer and its validation boundaries are documented in [docs/bpmn-serializer.md](docs/bpmn-serializer.md). BPMN DI and AI process understanding remain out of scope.
 
 ## Requirements
 
