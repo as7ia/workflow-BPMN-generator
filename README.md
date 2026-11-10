@@ -1,9 +1,10 @@
 # BPMN Generation API
 
-A modular FastAPI backend for a BPMN 2.0 generation engine. The current implementation provides service health checking, a typed intermediate process model, deterministic graph validation, semantic BPMN XML serialization, and an offline BPMN DI layout adapter. AI integration is not implemented yet.
+A modular FastAPI backend for a BPMN 2.0 generation engine. The current implementation provides service health checking, a typed intermediate process model, deterministic graph validation, semantic BPMN XML serialization, an offline BPMN DI layout adapter, and a mock-tested local Ollama process-extraction adapter. Natural-language HTTP generation is not implemented yet.
 
 The typed intermediate process representation and its deterministic validators are documented in [docs/intermediate-schema.md](docs/intermediate-schema.md).
-The semantic XML serializer and its validation boundaries are documented in [docs/bpmn-serializer.md](docs/bpmn-serializer.md). AI process understanding remains out of scope.
+The semantic XML serializer and its validation boundaries are documented in [docs/bpmn-serializer.md](docs/bpmn-serializer.md). The current LLM scope is limited to candidate extraction; semantic fidelity still requires review.
+Local Ollama extraction, configuration, trust boundaries, and limitations are documented in [docs/ollama-extraction.md](docs/ollama-extraction.md).
 
 ## Requirements
 
