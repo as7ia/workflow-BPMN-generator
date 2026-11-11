@@ -1,0 +1,89 @@
+{
+  "corpus_version": "1.0",
+  "cases": [
+    {
+      "id": "linear_review",
+      "category": "linear",
+      "reference": "tests/fixtures/linear_process.json",
+      "description": "The Company operations team receives a request, reviews the request, and then marks the request as reviewed.",
+      "expected": {"participants": ["Company"], "lanes": ["Operations"], "activities": ["Review request"], "gateway_counts": {"exclusive_gateway": 0, "parallel_gateway": 0}, "parallel_blocks": [], "loops": [], "message_flows": [], "subprocesses": []}
+    },
+    {
+      "id": "linear_review_paraphrase",
+      "category": "linear",
+      "reference": "tests/fixtures/linear_process.json",
+      "description": "Within Company, Operations begins when a request arrives. Operations must perform Review request before the process finishes with the request reviewed.",
+      "expected": {"participants": ["Company"], "lanes": ["Operations"], "activities": ["Review request"], "gateway_counts": {"exclusive_gateway": 0, "parallel_gateway": 0}, "parallel_blocks": [], "loops": [], "message_flows": [], "subprocesses": []}
+    },
+    {
+      "id": "exclusive_request_decision",
+      "category": "exclusive_decision",
+      "reference": "tests/fixtures/exclusive_gateway.json",
+      "description": "Company receives a request and decides whether the request is acceptable. If it is acceptable, Company approves the request. Otherwise Company rejects the request. The two alternatives merge and the request is completed.",
+      "expected": {"participants": ["Company"], "lanes": [], "activities": ["Approve request", "Reject request"], "gateway_counts": {"exclusive_gateway": 2, "parallel_gateway": 0}, "exclusive_conditions": ["Request is acceptable"], "parallel_blocks": [], "loops": [], "message_flows": [], "subprocesses": []}
+    },
+    {
+      "id": "parallel_financial_legal",
+      "category": "parallel",
+      "reference": "tests/fixtures/parallel_split_join.json",
+      "description": "After Company receives a case, it starts a financial check and a legal check in parallel. Company waits until both checks are complete, then marks the case as checked.",
+      "expected": {"participants": ["Company"], "lanes": [], "activities": ["Perform financial check", "Perform legal check"], "gateway_counts": {"exclusive_gateway": 0, "parallel_gateway": 2}, "parallel_blocks": [{"branches": ["Perform financial check", "Perform legal check"], "join_required": true}], "loops": [], "message_flows": [], "subprocesses": []}
+    },
+    {
+      "id": "submission_correction_loop",
+      "category": "loop",
+      "reference": "tests/fixtures/loop_corrections.json",
+      "description": "Company reviews each received submission. If the submission is accepted, the process ends. If corrections are required, Company corrects the submission and returns it to Review submission for another review.",
+      "expected": {"participants": ["Company"], "lanes": [], "activities": ["Review submission", "Correct submission"], "gateway_counts": {"exclusive_gateway": 1, "parallel_gateway": 0}, "exclusive_conditions": ["Submission is accepted", "Corrections are required"], "parallel_blocks": [], "loops": [{"from": "Correct submission", "to": "Review submission"}], "message_flows": [], "subprocesses": []}
+    },
+    {
+      "id": "customer_supplier_order",
+      "category": "collaboration",
+      "reference": "tests/fixtures/two_participants_message.json",
+      "description": "Customer identifies a need and sends an order. The Purchase order message goes from Customer's Send order activity to Supplier's Receive order activity. Supplier records the order, while Customer finishes after the order is sent.",
+      "expected": {"participants": ["Customer", "Supplier"], "lanes": [], "activities": ["Send order", "Receive order"], "gateway_counts": {"exclusive_gateway": 0, "parallel_gateway": 0}, "parallel_blocks": [], "loops": [], "message_flows": [{"source_participant": "Customer", "source_activity": "Send order", "target_participant": "Supplier", "target_activity": "Receive order", "label": "Purchase order"}], "subprocesses": []}
+    },
+    {
+      "id": "customer_supplier_order_paraphrase",
+      "category": "collaboration",
+      "reference": "tests/fixtures/two_participants_message.json",
+      "description": "There are two participants, Customer and Supplier. Customer performs Send order and communicates a Purchase order to Supplier, which performs Receive order. This communication must be a message flow from Customer to Supplier, not sequence flow between pools.",
+      "expected": {"participants": ["Customer", "Supplier"], "lanes": [], "activities": ["Send order", "Receive order"], "gateway_counts": {"exclusive_gateway": 0, "parallel_gateway": 0}, "parallel_blocks": [], "loops": [], "message_flows": [{"source_participant": "Customer", "source_activity": "Send order", "target_participant": "Supplier", "target_activity": "Receive order", "label": "Purchase order"}], "subprocesses": []}
+    },
+    {
+      "id": "case_verification_subprocess",
+      "category": "subprocess",
+      "reference": "tests/fixtures/nested_subprocess.json",
+      "description": "Company receives a case and runs the subprocess Verify case before completing the case. Inside Verify case, verification starts, Company performs Check documents, and verification completes.",
+      "expected": {"participants": ["Company"], "lanes": [], "activities": ["Verify case", "Check documents"], "gateway_counts": {"exclusive_gateway": 0, "parallel_gateway": 0}, "parallel_blocks": [], "loops": [], "message_flows": [], "subprocesses": [{"name": "Verify case", "contains": ["Check documents"]}]}
+    },
+    {
+      "id": "complex_approval",
+      "category": "combined",
+      "reference": "experiments/bpmn-auto-layout-feasibility/scenarios/complex_approval.json",
+      "description": "Organization has Requester and Approvers lanes. Requester submits a request. Approvers perform financial and policy checks in parallel and wait for both. If information is incomplete, Requester corrects and resubmits the request, looping back to Submit request. If complete, Approvers decide whether risk is acceptable: acceptable risk leads to Approve request; otherwise Perform senior review. The alternatives merge and the request is approved.",
+      "expected": {"participants": ["Organization"], "lanes": ["Requester", "Approvers"], "activities": ["Submit request", "Perform financial check", "Perform policy check", "Correct and resubmit request", "Approve request", "Perform senior review"], "gateway_counts": {"exclusive_gateway": 3, "parallel_gateway": 2}, "exclusive_conditions": ["Request information is complete", "Risk is acceptable", "Senior review is required"], "parallel_blocks": [{"branches": ["Perform financial check", "Perform policy check"], "join_required": true}], "loops": [{"from": "Correct and resubmit request", "to": "Submit request"}], "message_flows": [], "subprocesses": []}
+    },
+    {
+      "id": "three_party_collaboration",
+      "category": "combined_collaboration",
+      "reference": "experiments/bpmn-auto-layout-feasibility/scenarios/complex_collaboration.json",
+      "description": "Buyer sends a Purchase order to Supplier. Supplier receives it, confirms the order by sending Order confirmation to Buyer, then sends a Shipment request to Carrier. Carrier receives the shipment request, dispatches goods, and sends a Delivery notice to Buyer. Buyer receives the confirmation and delivery notice. Keep Buyer, Supplier, and Carrier as separate participants and preserve their Requesting, Receiving, Sales, Fulfillment, and Dispatch lanes.",
+      "expected": {"participants": ["Buyer", "Supplier", "Carrier"], "lanes": ["Requesting", "Receiving", "Sales", "Fulfillment", "Dispatch"], "activities": ["Send purchase order", "Receive purchase order", "Confirm order", "Request shipment", "Receive shipment request", "Dispatch goods", "Receive confirmation", "Receive delivery notice"], "gateway_counts": {"exclusive_gateway": 0, "parallel_gateway": 0}, "parallel_blocks": [], "loops": [], "message_flows": [{"source_participant": "Buyer", "source_activity": "Send purchase order", "target_participant": "Supplier", "target_activity": "Receive purchase order", "label": "Purchase order"}, {"source_participant": "Supplier", "source_activity": "Confirm order", "target_participant": "Buyer", "target_activity": "Receive confirmation", "label": "Order confirmation"}, {"source_participant": "Supplier", "source_activity": "Request shipment", "target_participant": "Carrier", "target_activity": "Receive shipment request", "label": "Shipment request"}, {"source_participant": "Carrier", "source_activity": "Dispatch goods", "target_participant": "Buyer", "target_activity": "Receive delivery notice", "label": "Delivery notice"}], "subprocesses": []}
+    },
+    {
+      "id": "nested_review_loop",
+      "category": "combined_subprocess_loop",
+      "reference": "experiments/bpmn-auto-layout-feasibility/scenarios/complex_nested_process.json",
+      "description": "Company receives a case, executes the subprocess Perform detailed review, and then completes the case. Inside the subprocess, Review case details is followed by a decision. If accepted, the nested process ends. If revision is required, Revise case details and loop back to Review case details.",
+      "expected": {"participants": ["Company"], "lanes": [], "activities": ["Perform detailed review", "Review case details", "Revise case details"], "gateway_counts": {"exclusive_gateway": 1, "parallel_gateway": 0}, "exclusive_conditions": ["Review is accepted", "Revision is required"], "parallel_blocks": [], "loops": [{"from": "Revise case details", "to": "Review case details"}], "message_flows": [], "subprocesses": [{"name": "Perform detailed review", "contains": ["Review case details", "Revise case details"]}]}
+    },
+    {
+      "id": "parallel_checks_paraphrase",
+      "category": "parallel",
+      "reference": "tests/fixtures/parallel_split_join.json",
+      "description": "For every case, Company must launch Perform financial check and Perform legal check at the same time. Neither branch is optional. Continue only after both activities finish, then close the case as checked.",
+      "expected": {"participants": ["Company"], "lanes": [], "activities": ["Perform financial check", "Perform legal check"], "gateway_counts": {"exclusive_gateway": 0, "parallel_gateway": 2}, "parallel_blocks": [{"branches": ["Perform financial check", "Perform legal check"], "join_required": true}], "loops": [], "message_flows": [], "subprocesses": []}
+    }
+  ]
+}

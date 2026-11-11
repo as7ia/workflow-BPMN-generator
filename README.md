@@ -5,6 +5,7 @@ A modular FastAPI backend for a BPMN 2.0 generation engine. The current implemen
 The typed intermediate process representation and its deterministic validators are documented in [docs/intermediate-schema.md](docs/intermediate-schema.md).
 The semantic XML serializer and its validation boundaries are documented in [docs/bpmn-serializer.md](docs/bpmn-serializer.md). The current LLM scope is limited to candidate extraction; semantic fidelity still requires review.
 Local Ollama extraction, configuration, trust boundaries, and limitations are documented in [docs/ollama-extraction.md](docs/ollama-extraction.md).
+The opt-in 12-case live semantic benchmark is documented in [evaluation/README.md](evaluation/README.md).
 
 ## Requirements
 
