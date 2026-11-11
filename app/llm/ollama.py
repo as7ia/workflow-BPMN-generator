@@ -122,6 +122,14 @@ class _UrllibTransport:
         try:
             with url_request.urlopen(request, timeout=timeout_seconds) as response:
                 response_body = response.read(max_response_bytes + 1)
+        except url_error.HTTPError as error:
+            if error.code == 404:
+                raise OllamaExtractionError(
+                    "model_unavailable", "The configured Ollama model is unavailable."
+                ) from error
+            raise OllamaExtractionError(
+                "ollama_unavailable", "The configured Ollama service rejected the request."
+            ) from error
         except (TimeoutError, socket.timeout) as error:
             raise OllamaExtractionError(
                 "ollama_timeout", "Ollama did not respond before the timeout."

@@ -39,6 +39,7 @@ The API is available at `http://127.0.0.1:8000`. Useful routes:
 
 - Health check: `http://127.0.0.1:8000/api/v1/health`
 - JSON-to-BPMN generation: `POST http://127.0.0.1:8000/api/v1/generate-from-json`
+- English-text candidate generation: `POST http://127.0.0.1:8000/api/v1/generate-from-text`
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - OpenAPI schema: `http://127.0.0.1:8000/openapi.json`
 
@@ -55,6 +56,11 @@ returns fully validated semantic BPMN XML with BPMN DI:
 Request bodies default to a 1 MiB limit. Layout execution defaults to a
 10-second timeout and at most two concurrent Node workers per application
 instance. These settings can be changed through `create_app()` arguments.
+
+The English-text endpoint accepts `{"description":"..."}` and uses the
+environment-configured local Ollama model. Successful responses always include
+`"review_required": true`; structural validation does not establish semantic
+fidelity. LLM extraction and layout execution use separate concurrency limits.
 
 ## Tests
 

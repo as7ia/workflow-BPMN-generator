@@ -14,6 +14,7 @@ def create_app(
     *,
     layout_timeout_seconds: float = 10.0,
     max_concurrent_layouts: int = 2,
+    max_concurrent_llm_calls: int = 1,
     max_request_bytes: int = 1_048_576,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -21,6 +22,8 @@ def create_app(
         raise ValueError("layout_timeout_seconds must be positive")
     if max_concurrent_layouts <= 0:
         raise ValueError("max_concurrent_layouts must be positive")
+    if max_concurrent_llm_calls <= 0:
+        raise ValueError("max_concurrent_llm_calls must be positive")
     if max_request_bytes <= 0:
         raise ValueError("max_request_bytes must be positive")
     application = FastAPI(
@@ -30,6 +33,7 @@ def create_app(
     )
     application.state.layout_timeout_seconds = layout_timeout_seconds
     application.state.layout_semaphore = asyncio.Semaphore(max_concurrent_layouts)
+    application.state.llm_semaphore = asyncio.Semaphore(max_concurrent_llm_calls)
     application.include_router(api_router, prefix="/api/v1")
     application.add_middleware(
         RequestBodyLimitMiddleware, max_body_bytes=max_request_bytes

@@ -174,10 +174,10 @@ def test_adapter_never_requests_model_download() -> None:
     assert "pull" not in payload
 
 
-def test_existing_api_has_no_natural_language_route() -> None:
+def test_expected_api_routes_are_registered() -> None:
     from app.main import app
 
     paths = app.openapi()["paths"]
     assert "/api/v1/generate-from-json" in paths
+    assert "/api/v1/generate-from-text" in paths
     assert "/api/v1/health" in paths
-    assert all("text" not in path and "natural" not in path for path in paths)
