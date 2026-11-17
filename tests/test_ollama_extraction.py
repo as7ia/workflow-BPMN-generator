@@ -181,3 +181,16 @@ def test_expected_api_routes_are_registered() -> None:
     assert "/api/v1/generate-from-json" in paths
     assert "/api/v1/generate-from-text" in paths
     assert "/api/v1/health" in paths
+
+
+def test_opt_in_no_thinking_is_passed_to_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OLLAMA_THINK", "false")
+    transport = FakeTransport(_chat_response(_fixture()))
+    extract_process("A clerk reviews an application.", transport=transport)
+    assert transport.calls[0][1]["think"] is False
+
+
+def test_invalid_thinking_setting_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OLLAMA_THINK", "maybe")
+    with pytest.raises(ValueError, match="OLLAMA_THINK"):
+        OllamaSettings.from_env()

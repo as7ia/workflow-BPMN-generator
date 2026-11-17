@@ -1,4 +1,4 @@
-"""Explicit, bounded live Qwen evaluation runner. Not used by pytest."""
+"""Explicit, bounded live Qwen evaluation with per-case checkpointing."""
 
 from __future__ import annotations
 
@@ -33,7 +33,15 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--max-cases", type=int, default=12, choices=range(1, 13))
     parser.add_argument("--with-layout", action="store_true", help="also run semantic serialization and DI layout")
     parser.add_argument("--output", type=Path, help="result JSON path; defaults under evaluation/results")
+    parser.add_argument("--resume", action="store_true", help="continue an existing --output without rerunning recorded cases")
     return parser.parse_args()
+
+
+def _save_report(output: Path, report: dict[str, Any]) -> None:
+    """Persist completed cases atomically so notebook interruption keeps prior work."""
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(output)
 
 
 def main() -> int:
@@ -54,8 +62,46 @@ def main() -> int:
     settings = replace(settings, **overrides)
     corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
     cases = corpus["cases"][: args.max_cases]
-    results: list[dict[str, Any]] = []
-    for case in cases:
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if args.resume and not args.output:
+        raise SystemExit("--resume requires --output pointing to an existing report")
+    output = (args.output or RESULTS / f"qwen-evaluation-{timestamp}.json").resolve()
+    results_root = RESULTS.resolve()
+    if results_root not in output.parents:
+        raise SystemExit("Output must be inside evaluation/results")
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    if args.resume:
+        if not output.is_file():
+            raise SystemExit("Cannot resume: report file does not exist")
+        report = json.loads(output.read_text(encoding="utf-8"))
+        if (report.get("corpus_version") != corpus["corpus_version"]
+                or report.get("settings") != asdict(settings)
+                or report.get("with_layout") != args.with_layout
+                or report.get("selected_case_ids") != [case["id"] for case in cases]):
+            raise SystemExit("Cannot resume: corpus, selected cases, settings, or layout mode changed")
+        results: list[dict[str, Any]] = report["results"]
+        existing_ids = [item["id"] for item in results]
+        if existing_ids != [case["id"] for case in cases[:len(results)]]:
+            raise SystemExit("Cannot resume: results do not match the selected case order")
+    else:
+        results = []
+        report = {
+            "run_at_utc": timestamp,
+            "corpus_version": corpus["corpus_version"],
+            "settings": asdict(settings),
+            "with_layout": args.with_layout,
+            "attempts_per_case": 1,
+            "selected_case_ids": [case["id"] for case in cases],
+            "results": results,
+        }
+        _save_report(output, report)
+
+    print(f"Report: {output}", flush=True)
+    print(f"Completed: {len(results)}/{len(cases)}; each case is saved immediately.", flush=True)
+    for index, case in enumerate(cases[len(results):], start=len(results) + 1):
+        print(f"[{index}/{len(cases)}] START {case['id']}", flush=True)
         started = perf_counter()
         record: dict[str, Any] = {
             "id": case["id"],
@@ -79,29 +125,16 @@ def main() -> int:
             record["schema_valid"] = error.code != "schema_validation_failed"
             record["graph_valid"] = False if error.code == "graph_validation_failed" else None
             record["error"] = {"stage": "extraction", "code": error.code, "message": str(error)}
-        except Exception as error:  # runner records unexpected layout/runtime failures per case
+        except Exception as error:  # unexpected failures recorded without losing earlier results
             record["di_valid"] = False if args.with_layout else None
             record["error"] = {"stage": "layout" if args.with_layout else "runtime", "type": type(error).__name__, "message": str(error)}
         record["latency_ms"] = round((perf_counter() - started) * 1000, 3)
         results.append(record)
+        _save_report(output, report)
+        status = "OK" if record["error"] is None else record["error"].get("code", "ERROR")
+        print(f"[{index}/{len(cases)}] {status} in {record['latency_ms']/1000:.1f}s (saved)", flush=True)
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    output = args.output or RESULTS / f"qwen-evaluation-{timestamp}.json"
-    output = output.resolve()
-    results_root = RESULTS.resolve()
-    if results_root not in output.parents:
-        raise SystemExit("Output must be inside evaluation/results")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    report = {
-        "run_at_utc": timestamp,
-        "corpus_version": corpus["corpus_version"],
-        "settings": {**asdict(settings), "base_url": settings.base_url},
-        "with_layout": args.with_layout,
-        "attempts_per_case": 1,
-        "results": results,
-    }
-    output.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(output)
+    print(f"Finished: {output}", flush=True)
     return 0
 
 

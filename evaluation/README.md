@@ -96,3 +96,14 @@ are no retries and no repair step.
 
 This validates the corpus, all reference models, and the scorer. It does not
 load Qwen, call Ollama, start Node, or demonstrate semantic accuracy.
+
+## Kaggle / interrupted runs
+
+The runner now prints the current case and immediately checkpoints completed
+results to its JSON report. If the notebook is interrupted, already completed
+cases remain on disk. Pass a stable `--output` path inside `evaluation/results/`
+and use `--resume --output <same path>` to continue with **the same** model,
+settings, selected case count, and layout mode. Completed cases (including
+errors) are never automatically retried. For a smoke test, start with
+`--max-cases 1` or `--max-cases 2` and choose a *different report path* for a
+subsequent 12-case run.
