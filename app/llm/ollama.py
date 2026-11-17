@@ -46,6 +46,7 @@ class OllamaSettings:
     max_response_bytes: int = _DEFAULT_MAX_RESPONSE_BYTES
     num_predict: int = _DEFAULT_NUM_PREDICT
     num_ctx: int = _DEFAULT_NUM_CTX
+    think: bool | None = None  # None preserves Ollama default; False disables reasoning
 
     def __post_init__(self) -> None:
         parsed = urlparse(self.base_url)
@@ -55,6 +56,8 @@ class OllamaSettings:
             raise ValueError("OLLAMA_BASE_URL must not contain credentials, query, or fragment")
         if not self.model.strip():
             raise ValueError("OLLAMA_MODEL must not be empty")
+        if self.think is not None and not isinstance(self.think, bool):
+            raise ValueError("OLLAMA_THINK must be true or false")
         bounded_values = {
             "OLLAMA_TIMEOUT_SECONDS": self.timeout_seconds,
             "OLLAMA_MAX_INPUT_CHARS": self.max_input_chars,
@@ -69,7 +72,12 @@ class OllamaSettings:
     @classmethod
     def from_env(cls) -> OllamaSettings:
         """Load settings from the process environment without network access."""
+        raw_think = os.getenv("OLLAMA_THINK")
+        if raw_think is not None and raw_think.lower() not in {"true", "false", "1", "0"}:
+            raise ValueError("OLLAMA_THINK must be true or false")
+        think = None if raw_think is None else raw_think.lower() in {"true", "1"}
         return cls(
+            think=think,
             base_url=os.getenv("OLLAMA_BASE_URL", _DEFAULT_BASE_URL).rstrip("/"),
             model=os.getenv("OLLAMA_MODEL", _DEFAULT_MODEL),
             timeout_seconds=float(
@@ -171,6 +179,7 @@ def _request_payload(description: str, settings: OllamaSettings) -> dict[str, An
     return {
         "model": settings.model,
         "stream": False,
+        **({"think": settings.think} if settings.think is not None else {}),
         "format": ProcessModel.model_json_schema(),
         "messages": [
             {"role": "system", "content": _system_prompt()},
