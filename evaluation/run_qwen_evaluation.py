@@ -124,7 +124,12 @@ def main() -> int:
         except OllamaExtractionError as error:
             record["schema_valid"] = error.code != "schema_validation_failed"
             record["graph_valid"] = False if error.code == "graph_validation_failed" else None
-            record["error"] = {"stage": "extraction", "code": error.code, "message": str(error)}
+            record["error"] = {
+                "stage": "extraction",
+                "code": error.code,
+                "message": str(error),
+                "details": error.details,
+            }
         except Exception as error:  # unexpected failures recorded without losing earlier results
             record["di_valid"] = False if args.with_layout else None
             record["error"] = {"stage": "layout" if args.with_layout else "runtime", "type": type(error).__name__, "message": str(error)}
