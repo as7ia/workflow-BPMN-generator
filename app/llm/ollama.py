@@ -247,13 +247,49 @@ def _repair_payload(
         "original_candidate": candidate,
         "graph_validation_issues": issues,
     }
-    prompt = """Repair the supplied ProcessModel JSON so it passes the supplied graph diagnostics.
+    prompt = """Repair the supplied ProcessModel JSON using the diagnostics and rules below.
 Return exactly one JSON object matching ProcessModel schema 1.0, with no explanation.
-Preserve all business activities, participants, decisions, branches, loops, ordering, and messages.
-Make only structural corrections required by the diagnostics. Do not invent, remove, or rename
-business activities, participants, subprocesses, or other business information. In particular,
-do not create a subprocess unless one is already explicitly represented in the candidate.
-Recheck the full schema and graph before responding.
+
+PRESERVE BUSINESS MEANING:
+Preserve every business activity, participant, decision, branch, loop, condition, ordering,
+responsibility, and message. Make only structural corrections required by the diagnostics.
+Never invent, remove, merge, or rename business activities or participants. Never create a
+subprocess node merely to fix a scope error. A missing nested scope may be added only when the
+candidate already contains a subprocess node that requires its internal scope. Do not turn an
+ordinary task or group of tasks into a subprocess without explicit evidence in the candidate.
+
+ROOT SCOPE VERSUS NESTED SCOPE:
+- Each participant must own exactly one root scope.
+- A root scope has that participant_id and BOTH parent_scope_id=null and
+  subprocess_node_id=null. It is the participant's top-level process, not subprocess contents.
+- A nested scope represents the contents inside one existing subprocess node. It must set BOTH
+  parent_scope_id and subprocess_node_id; never set only one of them.
+- parent_scope_id must identify the existing scope that directly contains the subprocess node.
+- subprocess_node_id must identify that existing node, whose type must be "subprocess".
+- The subprocess node's scope_id must equal the nested scope's parent_scope_id.
+- The nested scope, its subprocess node, and its parent scope must have the same participant_id.
+- Each subprocess node owns exactly one nested scope, and each nested scope belongs to exactly
+  one subprocess node. Do not create orphan or duplicate nested scopes.
+
+SUBPROCESS BOUNDARY:
+The subprocess node itself stays in its parent scope and participates in the parent scope's
+sequence flows. The subprocess's internal start event, internal activities, gateways, and
+internal end event belong to its nested scope. Sequence flows never cross between parent and
+nested scopes; connect the parent graph through the subprocess node, and connect the internal
+graph separately inside the nested scope.
+
+PER-SCOPE CONNECTIVITY:
+Every scope, root or nested, must contain a start_event and an end_event. Within each scope,
+every node must be reachable by same-scope sequence flows from a start event, and every node
+must be able to reach an end event. Preserve existing branches, joins, conditions, and loops.
+Add or redirect a sequence flow only when the candidate's existing ordering, branch condition,
+loop, or subprocess boundary makes the intended connection unambiguous. Never guess a business
+connection, branch, condition, or ordering merely to make the graph connected. If a valid repair
+would require an ambiguous business connection, do not invent one; the result will be rejected.
+
+FINAL CHECK:
+Recheck the complete schema, participant root scopes, nested-scope pairs, subprocess ownership,
+same-scope sequence flows, and reachability in every scope before responding.
 """
     return {
         "model": settings.model,

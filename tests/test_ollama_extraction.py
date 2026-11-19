@@ -10,6 +10,7 @@ import pytest
 
 from app.domain import ProcessModel
 from app.llm import OllamaExtractionError, OllamaSettings, extract_process
+from app.llm import ollama
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -123,7 +124,44 @@ def test_opt_in_graph_repair_sends_diagnostics_and_returns_revalidated_model() -
         issue["code"] == "unknown_sequence_target"
         for issue in repair_input["graph_validation_issues"]
     )
-    assert "Do not invent" in repair_payload["messages"][0]["content"]
+    assert "Never invent" in repair_payload["messages"][0]["content"]
+
+
+def test_repair_prompt_encodes_exact_root_and_nested_scope_invariants() -> None:
+    issues = [
+        {"code": "missing_participant_root_scope", "location": ["participants", 0, "id"]},
+        {"code": "invalid_nested_scope", "location": ["scopes", 0]},
+        {"code": "invalid_subprocess_parent", "location": ["scopes", 1, "parent_scope_id"]},
+    ]
+
+    payload = ollama._repair_payload(_fixture(), issues, OllamaSettings())
+    prompt = " ".join(payload["messages"][0]["content"].split())
+
+    assert "BOTH parent_scope_id=null and subprocess_node_id=null" in prompt
+    assert "must set BOTH" in prompt
+    assert "subprocess node's scope_id must equal the nested scope's parent_scope_id" in prompt
+    assert "must have the same participant_id" in prompt
+    assert "Each subprocess node owns exactly one nested scope" in prompt
+    request = json.loads(payload["messages"][1]["content"])
+    assert request["graph_validation_issues"] == issues
+
+
+def test_repair_prompt_keeps_subprocess_boundaries_and_forbids_ambiguous_flows() -> None:
+    issues = [
+        {"code": "unreachable_from_start", "location": ["nodes", 2]},
+        {"code": "cannot_reach_end", "location": ["nodes", 2]},
+    ]
+
+    payload = ollama._repair_payload(_fixture(), issues, OllamaSettings())
+    prompt = " ".join(payload["messages"][0]["content"].split())
+
+    assert "subprocess node itself stays in its parent scope" in prompt
+    assert "Sequence flows never cross between parent and nested scopes" in prompt
+    assert "every node must be reachable" in prompt
+    assert "every node must be able to reach an end event" in prompt
+    assert "only when" in prompt and "unambiguous" in prompt
+    assert "Never guess a business" in prompt
+    assert "Never create a subprocess node merely to fix a scope error" in prompt
 
 
 def test_failed_graph_repair_is_refused_after_exactly_two_calls() -> None:
