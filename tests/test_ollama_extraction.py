@@ -119,6 +119,7 @@ def test_opt_in_graph_repair_sends_diagnostics_and_returns_revalidated_model() -
     assert len(transport.calls) == 2
     repair_payload = transport.calls[1][1]
     repair_input = json.loads(repair_payload["messages"][1]["content"])
+    assert repair_input["original_description"] == "A clerk reviews an application."
     assert repair_input["original_candidate"] == invalid
     assert any(
         issue["code"] == "unknown_sequence_target"
@@ -134,7 +135,10 @@ def test_repair_prompt_encodes_exact_root_and_nested_scope_invariants() -> None:
         {"code": "invalid_subprocess_parent", "location": ["scopes", 1, "parent_scope_id"]},
     ]
 
-    payload = ollama._repair_payload(_fixture(), issues, OllamaSettings())
+    description = "A manager reviews a request in a bounded subprocess."
+    payload = ollama._repair_payload(
+        description, _fixture(), issues, OllamaSettings()
+    )
     prompt = " ".join(payload["messages"][0]["content"].split())
 
     assert "BOTH parent_scope_id=null and subprocess_node_id=null" in prompt
@@ -142,7 +146,10 @@ def test_repair_prompt_encodes_exact_root_and_nested_scope_invariants() -> None:
     assert "subprocess node's scope_id must equal the nested scope's parent_scope_id" in prompt
     assert "must have the same participant_id" in prompt
     assert "Each subprocess node owns exactly one nested scope" in prompt
+    assert "original_description as the source of truth" in prompt
+    assert "do not preserve that invented subprocess" in prompt
     request = json.loads(payload["messages"][1]["content"])
+    assert request["original_description"] == description
     assert request["graph_validation_issues"] == issues
 
 
@@ -152,7 +159,9 @@ def test_repair_prompt_keeps_subprocess_boundaries_and_forbids_ambiguous_flows()
         {"code": "cannot_reach_end", "location": ["nodes", 2]},
     ]
 
-    payload = ollama._repair_payload(_fixture(), issues, OllamaSettings())
+    payload = ollama._repair_payload(
+        "A clerk reviews an application.", _fixture(), issues, OllamaSettings()
+    )
     prompt = " ".join(payload["messages"][0]["content"].split())
 
     assert "parent scope and the nested scope as two separate control-flow graphs" in prompt
@@ -177,7 +186,9 @@ def test_repair_prompt_allows_only_semantically_neutral_missing_scope_events() -
         {"code": "missing_end_event", "location": ["scopes", 1]},
     ]
 
-    payload = ollama._repair_payload(_fixture(), issues, OllamaSettings())
+    payload = ollama._repair_payload(
+        "A clerk reviews an application.", _fixture(), issues, OllamaSettings()
+    )
     prompt = " ".join(payload["messages"][0]["content"].split())
 
     assert "Each scope must contain at least one start_event and at least one end_event" in prompt

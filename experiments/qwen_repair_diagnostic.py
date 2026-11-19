@@ -264,7 +264,7 @@ def capture_live_diagnostic(
 
     repaired_response = client.post_json(
         f"{settings.base_url}/api/chat",
-        ollama._repair_payload(initial_candidate, initial_issues, settings),
+        ollama._repair_payload(normalized, initial_candidate, initial_issues, settings),
         timeout_seconds=settings.timeout_seconds,
         max_response_bytes=settings.max_response_bytes,
     )

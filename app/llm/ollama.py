@@ -241,9 +241,13 @@ def _request_payload(description: str, settings: OllamaSettings) -> dict[str, An
 
 
 def _repair_payload(
-    candidate: Any, issues: list[dict[str, Any]], settings: OllamaSettings
+    description: str,
+    candidate: Any,
+    issues: list[dict[str, Any]],
+    settings: OllamaSettings,
 ) -> dict[str, Any]:
     repair_request = {
+        "original_description": description,
         "original_candidate": candidate,
         "graph_validation_issues": issues,
     }
@@ -251,12 +255,17 @@ def _repair_payload(
 Return exactly one JSON object matching ProcessModel schema 1.0, with no explanation.
 
 PRESERVE BUSINESS MEANING:
+Treat original_description as the source of truth for business meaning. Use the candidate only
+as the structure to repair and the diagnostics only as structural defects to correct.
 Preserve every business activity, participant, decision, branch, loop, condition, ordering,
 responsibility, and message. Make only structural corrections required by the diagnostics.
 Never invent, remove, merge, or rename business activities or participants. Never create a
 subprocess node merely to fix a scope error. A missing nested scope may be added only when the
 candidate already contains a subprocess node that requires its internal scope. Do not turn an
-ordinary task or group of tasks into a subprocess without explicit evidence in the candidate.
+ordinary task or group of tasks into a subprocess without explicit evidence in
+original_description. If the candidate contains a subprocess that is not justified by
+original_description, do not preserve that invented subprocess: keep its business activities
+and ordering, but represent them without the unjustified subprocess boundary.
 
 ROOT SCOPE VERSUS NESTED SCOPE:
 - Each participant must own exactly one root scope.
@@ -426,7 +435,7 @@ def extract_process(
     try:
         repair_response = client.post_json(
             f"{active_settings.base_url}/api/chat",
-            _repair_payload(candidate, initial_issues, active_settings),
+            _repair_payload(normalized, candidate, initial_issues, active_settings),
             timeout_seconds=active_settings.timeout_seconds,
             max_response_bytes=active_settings.max_response_bytes,
         )
