@@ -33,3 +33,6 @@ Thumbs.db
 
 
 .pytest_tmp/
+training/artifacts/
+training/outputs/
+evaluation/results/

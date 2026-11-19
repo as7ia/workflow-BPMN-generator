@@ -1,0 +1,130 @@
+{
+  "dataset_version": "0.1",
+  "cases": [
+    {
+      "id": "synthetic_employee_onboarding_linear",
+      "family": "linear",
+      "description": "Human Resources registers a new employee, prepares the welcome package, and completes onboarding.",
+      "provenance": {"kind": "synthetic_hand_authored", "synthetic": true, "source": "repository_training_seed_v0.1"},
+      "model": {
+        "schema_version": "1.0", "id": "onboarding", "name": "Employee onboarding",
+        "participants": [{"id": "p_hr", "name": "Human Resources"}], "lanes": [],
+        "scopes": [{"id": "s_hr", "participant_id": "p_hr", "parent_scope_id": null, "subprocess_node_id": null}],
+        "nodes": [
+          {"id": "n_start", "type": "start_event", "name": "Employee arrives", "participant_id": "p_hr", "lane_id": null, "scope_id": "s_hr", "default_flow_id": null},
+          {"id": "n_register", "type": "task", "name": "Register employee", "participant_id": "p_hr", "lane_id": null, "scope_id": "s_hr", "default_flow_id": null},
+          {"id": "n_package", "type": "task", "name": "Prepare welcome package", "participant_id": "p_hr", "lane_id": null, "scope_id": "s_hr", "default_flow_id": null},
+          {"id": "n_end", "type": "end_event", "name": "Onboarding complete", "participant_id": "p_hr", "lane_id": null, "scope_id": "s_hr", "default_flow_id": null}
+        ],
+        "sequence_flows": [
+          {"id": "f1", "source_ref": "n_start", "target_ref": "n_register", "condition": null},
+          {"id": "f2", "source_ref": "n_register", "target_ref": "n_package", "condition": null},
+          {"id": "f3", "source_ref": "n_package", "target_ref": "n_end", "condition": null}
+        ], "message_flows": []
+      }
+    },
+    {
+      "id": "synthetic_warranty_xor",
+      "family": "exclusive_decision",
+      "description": "The Warranty Desk inspects a claim. If the claim is covered, it authorizes a replacement; otherwise it declines the claim. Both outcomes then close the claim.",
+      "provenance": {"kind": "synthetic_hand_authored", "synthetic": true, "source": "repository_training_seed_v0.1"},
+      "model": {
+        "schema_version": "1.0", "id": "warranty", "name": "Warranty decision",
+        "participants": [{"id": "p_warranty", "name": "Warranty Desk"}], "lanes": [],
+        "scopes": [{"id": "s_warranty", "participant_id": "p_warranty", "parent_scope_id": null, "subprocess_node_id": null}],
+        "nodes": [
+          {"id": "w_start", "type": "start_event", "name": "Claim received", "participant_id": "p_warranty", "lane_id": null, "scope_id": "s_warranty", "default_flow_id": null},
+          {"id": "w_inspect", "type": "task", "name": "Inspect claim", "participant_id": "p_warranty", "lane_id": null, "scope_id": "s_warranty", "default_flow_id": null},
+          {"id": "w_split", "type": "exclusive_gateway", "name": "Coverage decision", "participant_id": "p_warranty", "lane_id": null, "scope_id": "s_warranty", "default_flow_id": "wf_decline"},
+          {"id": "w_replace", "type": "task", "name": "Authorize replacement", "participant_id": "p_warranty", "lane_id": null, "scope_id": "s_warranty", "default_flow_id": null},
+          {"id": "w_decline", "type": "task", "name": "Decline claim", "participant_id": "p_warranty", "lane_id": null, "scope_id": "s_warranty", "default_flow_id": null},
+          {"id": "w_merge", "type": "exclusive_gateway", "name": "Outcome merge", "participant_id": "p_warranty", "lane_id": null, "scope_id": "s_warranty", "default_flow_id": null},
+          {"id": "w_end", "type": "end_event", "name": "Claim closed", "participant_id": "p_warranty", "lane_id": null, "scope_id": "s_warranty", "default_flow_id": null}
+        ],
+        "sequence_flows": [
+          {"id": "wf1", "source_ref": "w_start", "target_ref": "w_inspect", "condition": null}, {"id": "wf2", "source_ref": "w_inspect", "target_ref": "w_split", "condition": null},
+          {"id": "wf_covered", "source_ref": "w_split", "target_ref": "w_replace", "condition": "Claim is covered"}, {"id": "wf_decline", "source_ref": "w_split", "target_ref": "w_decline", "condition": null},
+          {"id": "wf4", "source_ref": "w_replace", "target_ref": "w_merge", "condition": null}, {"id": "wf5", "source_ref": "w_decline", "target_ref": "w_merge", "condition": null}, {"id": "wf6", "source_ref": "w_merge", "target_ref": "w_end", "condition": null}
+        ], "message_flows": []
+      }
+    },
+    {
+      "id": "synthetic_incident_parallel",
+      "family": "parallel",
+      "description": "The Incident Team simultaneously isolates the affected service and collects diagnostic evidence. After both actions finish, it restores normal operation.",
+      "provenance": {"kind": "synthetic_hand_authored", "synthetic": true, "source": "repository_training_seed_v0.1"},
+      "model": {
+        "schema_version": "1.0", "id": "incident", "name": "Incident response", "participants": [{"id": "p_incident", "name": "Incident Team"}], "lanes": [],
+        "scopes": [{"id": "s_incident", "participant_id": "p_incident", "parent_scope_id": null, "subprocess_node_id": null}],
+        "nodes": [
+          {"id": "i_start", "type": "start_event", "name": "Incident detected", "participant_id": "p_incident", "lane_id": null, "scope_id": "s_incident", "default_flow_id": null},
+          {"id": "i_split", "type": "parallel_gateway", "name": "Start response actions", "participant_id": "p_incident", "lane_id": null, "scope_id": "s_incident", "default_flow_id": null},
+          {"id": "i_isolate", "type": "task", "name": "Isolate affected service", "participant_id": "p_incident", "lane_id": null, "scope_id": "s_incident", "default_flow_id": null},
+          {"id": "i_collect", "type": "task", "name": "Collect diagnostic evidence", "participant_id": "p_incident", "lane_id": null, "scope_id": "s_incident", "default_flow_id": null},
+          {"id": "i_join", "type": "parallel_gateway", "name": "Response actions complete", "participant_id": "p_incident", "lane_id": null, "scope_id": "s_incident", "default_flow_id": null},
+          {"id": "i_restore", "type": "task", "name": "Restore normal operation", "participant_id": "p_incident", "lane_id": null, "scope_id": "s_incident", "default_flow_id": null},
+          {"id": "i_end", "type": "end_event", "name": "Incident resolved", "participant_id": "p_incident", "lane_id": null, "scope_id": "s_incident", "default_flow_id": null}
+        ],
+        "sequence_flows": [
+          {"id": "if1", "source_ref": "i_start", "target_ref": "i_split", "condition": null}, {"id": "if2", "source_ref": "i_split", "target_ref": "i_isolate", "condition": null}, {"id": "if3", "source_ref": "i_split", "target_ref": "i_collect", "condition": null},
+          {"id": "if4", "source_ref": "i_isolate", "target_ref": "i_join", "condition": null}, {"id": "if5", "source_ref": "i_collect", "target_ref": "i_join", "condition": null}, {"id": "if6", "source_ref": "i_join", "target_ref": "i_restore", "condition": null}, {"id": "if7", "source_ref": "i_restore", "target_ref": "i_end", "condition": null}
+        ], "message_flows": []
+      }
+    },
+    {
+      "id": "synthetic_editorial_loop",
+      "family": "loop",
+      "description": "The Editorial Board assesses a draft. When revisions are needed, an Editor revises the draft and returns it for another assessment. When accepted, publication preparation ends the process.",
+      "provenance": {"kind": "synthetic_hand_authored", "synthetic": true, "source": "repository_training_seed_v0.1"},
+      "model": {
+        "schema_version": "1.0", "id": "editorial", "name": "Editorial revision", "participants": [{"id": "p_editorial", "name": "Publishing House"}],
+        "lanes": [{"id": "l_board", "name": "Editorial Board", "participant_id": "p_editorial"}, {"id": "l_editor", "name": "Editor", "participant_id": "p_editorial"}],
+        "scopes": [{"id": "s_editorial", "participant_id": "p_editorial", "parent_scope_id": null, "subprocess_node_id": null}],
+        "nodes": [
+          {"id": "e_start", "type": "start_event", "name": "Draft submitted", "participant_id": "p_editorial", "lane_id": "l_board", "scope_id": "s_editorial", "default_flow_id": null},
+          {"id": "e_assess", "type": "task", "name": "Assess draft", "participant_id": "p_editorial", "lane_id": "l_board", "scope_id": "s_editorial", "default_flow_id": null},
+          {"id": "e_decide", "type": "exclusive_gateway", "name": "Editorial decision", "participant_id": "p_editorial", "lane_id": "l_board", "scope_id": "s_editorial", "default_flow_id": "ef_accept"},
+          {"id": "e_revise", "type": "task", "name": "Revise draft", "participant_id": "p_editorial", "lane_id": "l_editor", "scope_id": "s_editorial", "default_flow_id": null},
+          {"id": "e_prepare", "type": "task", "name": "Prepare publication", "participant_id": "p_editorial", "lane_id": "l_editor", "scope_id": "s_editorial", "default_flow_id": null},
+          {"id": "e_end", "type": "end_event", "name": "Preparation complete", "participant_id": "p_editorial", "lane_id": "l_editor", "scope_id": "s_editorial", "default_flow_id": null}
+        ],
+        "sequence_flows": [
+          {"id": "ef1", "source_ref": "e_start", "target_ref": "e_assess", "condition": null}, {"id": "ef2", "source_ref": "e_assess", "target_ref": "e_decide", "condition": null},
+          {"id": "ef_revise", "source_ref": "e_decide", "target_ref": "e_revise", "condition": "Revisions are needed"}, {"id": "ef_accept", "source_ref": "e_decide", "target_ref": "e_prepare", "condition": null},
+          {"id": "ef4", "source_ref": "e_revise", "target_ref": "e_assess", "condition": null}, {"id": "ef5", "source_ref": "e_prepare", "target_ref": "e_end", "condition": null}
+        ], "message_flows": []
+      }
+    },
+    {
+      "id": "synthetic_clinic_lab_message",
+      "family": "collaboration",
+      "description": "A Clinic sends a specimen request from Submit specimen request to a Laboratory's Receive specimen request activity. The Laboratory analyzes the specimen and completes its work while the Clinic completes after submission.",
+      "provenance": {"kind": "synthetic_hand_authored", "synthetic": true, "source": "repository_training_seed_v0.1"},
+      "model": {
+        "schema_version": "1.0", "id": "specimen", "name": "Specimen collaboration", "participants": [{"id": "p_clinic", "name": "Clinic"}, {"id": "p_lab", "name": "Laboratory"}], "lanes": [],
+        "scopes": [{"id": "s_clinic", "participant_id": "p_clinic", "parent_scope_id": null, "subprocess_node_id": null}, {"id": "s_lab", "participant_id": "p_lab", "parent_scope_id": null, "subprocess_node_id": null}],
+        "nodes": [
+          {"id": "c_start", "type": "start_event", "name": "Specimen ready", "participant_id": "p_clinic", "lane_id": null, "scope_id": "s_clinic", "default_flow_id": null}, {"id": "c_send", "type": "task", "name": "Submit specimen request", "participant_id": "p_clinic", "lane_id": null, "scope_id": "s_clinic", "default_flow_id": null}, {"id": "c_end", "type": "end_event", "name": "Submission complete", "participant_id": "p_clinic", "lane_id": null, "scope_id": "s_clinic", "default_flow_id": null},
+          {"id": "l_start", "type": "start_event", "name": "Laboratory ready", "participant_id": "p_lab", "lane_id": null, "scope_id": "s_lab", "default_flow_id": null}, {"id": "l_receive", "type": "task", "name": "Receive specimen request", "participant_id": "p_lab", "lane_id": null, "scope_id": "s_lab", "default_flow_id": null}, {"id": "l_analyze", "type": "task", "name": "Analyze specimen", "participant_id": "p_lab", "lane_id": null, "scope_id": "s_lab", "default_flow_id": null}, {"id": "l_end", "type": "end_event", "name": "Analysis complete", "participant_id": "p_lab", "lane_id": null, "scope_id": "s_lab", "default_flow_id": null}
+        ],
+        "sequence_flows": [{"id": "cf1", "source_ref": "c_start", "target_ref": "c_send", "condition": null}, {"id": "cf2", "source_ref": "c_send", "target_ref": "c_end", "condition": null}, {"id": "lf1", "source_ref": "l_start", "target_ref": "l_receive", "condition": null}, {"id": "lf2", "source_ref": "l_receive", "target_ref": "l_analyze", "condition": null}, {"id": "lf3", "source_ref": "l_analyze", "target_ref": "l_end", "condition": null}],
+        "message_flows": [{"id": "m_specimen", "source_ref": "c_send", "target_ref": "l_receive", "label": "Specimen request"}]
+      }
+    },
+    {
+      "id": "synthetic_assembly_subprocess",
+      "family": "subprocess",
+      "description": "The Factory starts an order, performs the explicitly bounded subprocess Inspect assembled unit, and closes the order. Inside Inspect assembled unit, inspection starts, a Technician measures the unit, and inspection ends.",
+      "provenance": {"kind": "synthetic_hand_authored", "synthetic": true, "source": "repository_training_seed_v0.1"},
+      "model": {
+        "schema_version": "1.0", "id": "assembly", "name": "Assembly inspection", "participants": [{"id": "p_factory", "name": "Factory"}], "lanes": [{"id": "l_tech", "name": "Technician", "participant_id": "p_factory"}],
+        "scopes": [{"id": "s_factory", "participant_id": "p_factory", "parent_scope_id": null, "subprocess_node_id": null}, {"id": "s_inspection", "participant_id": "p_factory", "parent_scope_id": "s_factory", "subprocess_node_id": "a_inspect"}],
+        "nodes": [
+          {"id": "a_start", "type": "start_event", "name": "Order started", "participant_id": "p_factory", "lane_id": null, "scope_id": "s_factory", "default_flow_id": null}, {"id": "a_inspect", "type": "subprocess", "name": "Inspect assembled unit", "participant_id": "p_factory", "lane_id": "l_tech", "scope_id": "s_factory", "default_flow_id": null}, {"id": "a_end", "type": "end_event", "name": "Order closed", "participant_id": "p_factory", "lane_id": null, "scope_id": "s_factory", "default_flow_id": null},
+          {"id": "a_sub_start", "type": "start_event", "name": "Inspection started", "participant_id": "p_factory", "lane_id": "l_tech", "scope_id": "s_inspection", "default_flow_id": null}, {"id": "a_measure", "type": "task", "name": "Measure unit", "participant_id": "p_factory", "lane_id": "l_tech", "scope_id": "s_inspection", "default_flow_id": null}, {"id": "a_sub_end", "type": "end_event", "name": "Inspection ended", "participant_id": "p_factory", "lane_id": "l_tech", "scope_id": "s_inspection", "default_flow_id": null}
+        ],
+        "sequence_flows": [{"id": "af1", "source_ref": "a_start", "target_ref": "a_inspect", "condition": null}, {"id": "af2", "source_ref": "a_inspect", "target_ref": "a_end", "condition": null}, {"id": "af3", "source_ref": "a_sub_start", "target_ref": "a_measure", "condition": null}, {"id": "af4", "source_ref": "a_measure", "target_ref": "a_sub_end", "condition": null}], "message_flows": []
+      }
+    }
+  ]
+}

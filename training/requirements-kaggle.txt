@@ -1,0 +1,8 @@
+transformers>=4.51,<5
+peft>=0.15,<1
+accelerate>=1.5,<2
+bitsandbytes>=0.45,<1
+datasets>=3.5,<5
+safetensors>=0.5,<1
+# Optional backend; install only a release compatible with the Kaggle CUDA/PyTorch image.
+# unsloth
