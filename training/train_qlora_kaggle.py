@@ -8,7 +8,32 @@ import json
 from pathlib import Path
 from typing import Any
 
-REQUIRED_PACKAGES = ("torch", "transformers", "peft", "accelerate", "bitsandbytes", "datasets")
+REQUIRED_PACKAGES = (
+    "torch", "transformers", "peft", "accelerate", "bitsandbytes", "datasets",
+    "liger-kernel",
+)
+
+
+def precision_for_compute_capability(major: int, minor: int) -> str:
+    """Select a native training dtype; pre-Ampere GPUs must use FP16."""
+    if (major, minor) >= (8, 0):
+        return "bf16"
+    return "fp16"
+
+
+def memory_training_settings(precision: str) -> dict[str, Any]:
+    """Centralize the single-GPU memory invariants used by TrainingArguments."""
+    return {
+        "per_device_train_batch_size": 1,
+        "per_device_eval_batch_size": 1,
+        "gradient_accumulation_steps": 8,
+        "bf16": precision == "bf16",
+        "fp16": precision == "fp16",
+        "gradient_checkpointing": True,
+        "gradient_checkpointing_kwargs": {"use_reentrant": False},
+        "use_liger_kernel": True,
+        "liger_kernel_config": {"fused_linear_cross_entropy": True},
+    }
 
 
 def environment_report(train_file: Path, validation_file: Path) -> dict[str, Any]:
@@ -32,7 +57,15 @@ def environment_report(train_file: Path, validation_file: Path) -> dict[str, Any
                 {
                     "name": torch.cuda.get_device_name(index),
                     "total_memory_bytes": torch.cuda.get_device_properties(index).total_memory,
+                    "compute_capability": [
+                        torch.cuda.get_device_properties(index).major,
+                        torch.cuda.get_device_properties(index).minor,
+                    ],
                     "bf16_supported": bool(torch.cuda.is_bf16_supported()),
+                    "selected_precision": precision_for_compute_capability(
+                        torch.cuda.get_device_properties(index).major,
+                        torch.cuda.get_device_properties(index).minor,
+                    ),
                 }
                 for index in range(torch.cuda.device_count())
             ],
@@ -85,6 +118,38 @@ def _chat_text(
         )
 
 
+def tokenize_supervised_record(
+    tokenizer: Any, record: dict[str, Any], *, max_length: int
+) -> dict[str, list[int]]:
+    """Tokenize without truncation and mask every non-assistant target token."""
+    full_text = _chat_text(tokenizer, record["messages"], add_generation_prompt=False)
+    prompt_text = _chat_text(
+        tokenizer, record["messages"][:-1], add_generation_prompt=True
+    )
+    encoded = tokenizer(full_text, truncation=False, add_special_tokens=False)
+    prompt = tokenizer(prompt_text, truncation=False, add_special_tokens=False)
+    input_ids = list(encoded["input_ids"])
+    prompt_ids = list(prompt["input_ids"])
+    record_id = record.get("metadata", {}).get("id", "unknown")
+    if len(input_ids) > max_length:
+        raise ValueError(
+            f"{record_id}: tokenized sequence has {len(input_ids)} tokens, exceeding "
+            f"max_seq_length={max_length}; refusing to truncate the BPMN response"
+        )
+    if input_ids[: len(prompt_ids)] != prompt_ids:
+        raise ValueError(
+            f"{record_id}: chat-template prompt tokens are not an exact prefix of the "
+            "full conversation; assistant-only loss masking would be unsafe"
+        )
+    assistant_length = len(input_ids) - len(prompt_ids)
+    if assistant_length <= 0:
+        raise ValueError(f"{record_id}: assistant response contains no trainable tokens")
+    result = dict(encoded)
+    result["input_ids"] = input_ids
+    result["labels"] = [-100] * len(prompt_ids) + input_ids[len(prompt_ids):]
+    return result
+
+
 def train(args: argparse.Namespace) -> None:
     report = environment_report(args.train_file, args.validation_file)
     print(json.dumps(report, indent=2))
@@ -92,6 +157,10 @@ def train(args: argparse.Namespace) -> None:
         raise SystemExit("Training preflight failed; no training was started")
     if args.preflight_only:
         return
+    if args.batch_size != 1 or args.gradient_accumulation != 8:
+        raise SystemExit(
+            "This single-T4 profile requires batch_size=1 and gradient_accumulation=8"
+        )
 
     import torch
     from datasets import load_dataset
@@ -108,6 +177,32 @@ def train(args: argparse.Namespace) -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=False)
     tokenizer.pad_token = tokenizer.pad_token or tokenizer.eos_token
     tokenizer.padding_side = "right"
+    dataset = load_dataset(
+        "json",
+        data_files={"train": str(args.train_file), "validation": str(args.validation_file)},
+    )
+
+    def tokenize(record: dict[str, Any]) -> dict[str, Any]:
+        return tokenize_supervised_record(
+            tokenizer, record, max_length=args.max_seq_length
+        )
+
+    tokenized = dataset.map(tokenize, remove_columns=dataset["train"].column_names)
+    length_report = {
+        split: {
+            "examples": len(tokenized[split]),
+            "maximum_tokens": max(len(item) for item in tokenized[split]["input_ids"]),
+        }
+        for split in ("train", "validation")
+    }
+    print(json.dumps({"tokenized_data": length_report}, indent=2))
+    if args.validate_data_only:
+        return
+
+    device_index = torch.cuda.current_device()
+    properties = torch.cuda.get_device_properties(device_index)
+    precision = precision_for_compute_capability(properties.major, properties.minor)
+    compute_dtype = torch.bfloat16 if precision == "bf16" else torch.float16
 
     if args.backend == "unsloth":
         try:
@@ -118,7 +213,7 @@ def train(args: argparse.Namespace) -> None:
             model_name=args.model,
             max_seq_length=args.max_seq_length,
             load_in_4bit=True,
-            dtype=None,
+            dtype=compute_dtype,
         )
         model = FastLanguageModel.get_peft_model(
             model,
@@ -134,12 +229,13 @@ def train(args: argparse.Namespace) -> None:
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
+            bnb_4bit_compute_dtype=compute_dtype,
         )
         model = AutoModelForCausalLM.from_pretrained(
             args.model,
             quantization_config=quantization,
-            device_map="auto",
+            device_map={"": device_index},
+            attn_implementation="sdpa",
             trust_remote_code=False,
         )
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
@@ -157,34 +253,11 @@ def train(args: argparse.Namespace) -> None:
 
     tokenizer.pad_token = tokenizer.pad_token or tokenizer.eos_token
     tokenizer.padding_side = "right"
+    model.config.use_cache = False
 
-    dataset = load_dataset(
-        "json",
-        data_files={"train": str(args.train_file), "validation": str(args.validation_file)},
-    )
-
-    def tokenize(record: dict[str, Any]) -> dict[str, Any]:
-        full_text = _chat_text(
-            tokenizer, record["messages"], add_generation_prompt=False
-        )
-        prompt_text = _chat_text(
-            tokenizer, record["messages"][:-1], add_generation_prompt=True
-        )
-        encoded = tokenizer(full_text, truncation=True, max_length=args.max_seq_length)
-        prompt = tokenizer(prompt_text, truncation=True, max_length=args.max_seq_length)
-        prompt_length = min(len(prompt["input_ids"]), len(encoded["input_ids"]))
-        encoded["labels"] = (
-            [-100] * prompt_length + encoded["input_ids"][prompt_length:]
-        )
-        return encoded
-
-    tokenized = dataset.map(tokenize, remove_columns=dataset["train"].column_names)
     training_args = TrainingArguments(
         output_dir=str(args.output),
         num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=1,
-        gradient_accumulation_steps=args.gradient_accumulation,
         learning_rate=args.learning_rate,
         warmup_ratio=0.05,
         logging_steps=1,
@@ -196,11 +269,10 @@ def train(args: argparse.Namespace) -> None:
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        bf16=torch.cuda.is_bf16_supported(),
-        fp16=not torch.cuda.is_bf16_supported(),
         optim="paged_adamw_8bit",
         report_to="none",
         seed=args.seed,
+        **memory_training_settings(precision),
     )
     trainer = Trainer(
         model=model,
@@ -227,6 +299,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=Path("training/outputs/qwen3-8b-processmodel"))
     parser.add_argument("--backend", choices=("transformers", "unsloth"), default="transformers")
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--validate-data-only", action="store_true")
     parser.add_argument("--max-seq-length", type=int, default=8192)
     parser.add_argument("--epochs", type=float, default=3.0)
     parser.add_argument("--batch-size", type=int, default=1)
