@@ -15,8 +15,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class FakeTransport:
-    def __init__(self, response: dict[str, object]) -> None:
-        self.response = response
+    def __init__(self, response: dict[str, object] | list[dict[str, object]]) -> None:
+        self.responses = response if isinstance(response, list) else [response]
         self.calls: list[tuple[str, dict[str, object], float, int]] = []
 
     def post_json(
@@ -28,7 +28,7 @@ class FakeTransport:
         max_response_bytes: int,
     ) -> dict[str, object]:
         self.calls.append((url, payload, timeout_seconds, max_response_bytes))
-        return self.response
+        return self.responses[len(self.calls) - 1]
 
 
 def _fixture(name: str = "linear_process.json") -> dict[str, object]:
@@ -100,6 +100,61 @@ def test_invalid_graph_references_are_rejected_without_repair() -> None:
         issue["code"] == "unknown_sequence_target"
         for issue in captured.value.details["issues"]
     )
+    assert len(transport.calls) == 1
+
+
+def test_opt_in_graph_repair_sends_diagnostics_and_returns_revalidated_model() -> None:
+    invalid = _fixture("invalid_dangling_sequence_flow.json")
+    repaired = _fixture()
+    transport = FakeTransport([_chat_response(invalid), _chat_response(repaired)])
+
+    model = extract_process(
+        "A clerk reviews an application.",
+        settings=OllamaSettings(repair_invalid_graph=True),
+        transport=transport,
+    )
+
+    assert model.id == "linear"
+    assert len(transport.calls) == 2
+    repair_payload = transport.calls[1][1]
+    repair_input = json.loads(repair_payload["messages"][1]["content"])
+    assert repair_input["original_candidate"] == invalid
+    assert any(
+        issue["code"] == "unknown_sequence_target"
+        for issue in repair_input["graph_validation_issues"]
+    )
+    assert "Do not invent" in repair_payload["messages"][0]["content"]
+
+
+def test_failed_graph_repair_is_refused_after_exactly_two_calls() -> None:
+    invalid = _fixture("invalid_dangling_sequence_flow.json")
+    transport = FakeTransport([_chat_response(invalid), _chat_response(invalid)])
+
+    with pytest.raises(OllamaExtractionError) as captured:
+        extract_process(
+            "A clerk reviews an application.",
+            settings=OllamaSettings(repair_invalid_graph=True),
+            transport=transport,
+        )
+
+    assert captured.value.code == "graph_validation_failed"
+    assert captured.value.details["repair_attempted"] is True
+    assert captured.value.details["initial_graph_issues"]
+    assert len(transport.calls) == 2
+
+
+def test_repair_is_not_attempted_for_schema_failure() -> None:
+    transport = FakeTransport(_chat_response({"schema_version": "1.0"}))
+
+    with pytest.raises(OllamaExtractionError) as captured:
+        extract_process(
+            "A clerk reviews an application.",
+            settings=OllamaSettings(repair_invalid_graph=True),
+            transport=transport,
+        )
+
+    assert captured.value.code == "schema_validation_failed"
+    assert len(transport.calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -193,4 +248,15 @@ def test_opt_in_no_thinking_is_passed_to_ollama(monkeypatch: pytest.MonkeyPatch)
 def test_invalid_thinking_setting_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OLLAMA_THINK", "maybe")
     with pytest.raises(ValueError, match="OLLAMA_THINK"):
+        OllamaSettings.from_env()
+
+
+def test_graph_repair_requires_explicit_valid_environment_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert OllamaSettings.from_env().repair_invalid_graph is False
+    monkeypatch.setenv("OLLAMA_REPAIR_INVALID_GRAPH", "true")
+    assert OllamaSettings.from_env().repair_invalid_graph is True
+    monkeypatch.setenv("OLLAMA_REPAIR_INVALID_GRAPH", "sometimes")
+    with pytest.raises(ValueError, match="OLLAMA_REPAIR_INVALID_GRAPH"):
         OllamaSettings.from_env()

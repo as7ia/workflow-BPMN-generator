@@ -32,6 +32,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--num-ctx", type=int, help="override context window")
     parser.add_argument("--max-cases", type=int, default=12, choices=range(1, 13))
     parser.add_argument("--with-layout", action="store_true", help="also run semantic serialization and DI layout")
+    parser.add_argument("--repair-invalid-graph", action="store_true", help="allow one Qwen graph-repair attempt")
     parser.add_argument("--output", type=Path, help="result JSON path; defaults under evaluation/results")
     parser.add_argument("--resume", action="store_true", help="continue an existing --output without rerunning recorded cases")
     return parser.parse_args()
@@ -56,6 +57,7 @@ def main() -> int:
             "timeout_seconds": args.timeout,
             "num_predict": args.num_predict,
             "num_ctx": args.num_ctx,
+            "repair_invalid_graph": True if args.repair_invalid_graph else None,
         }.items()
         if value is not None
     }
@@ -92,7 +94,7 @@ def main() -> int:
             "corpus_version": corpus["corpus_version"],
             "settings": asdict(settings),
             "with_layout": args.with_layout,
-            "attempts_per_case": 1,
+            "maximum_attempts_per_case": 2 if settings.repair_invalid_graph else 1,
             "selected_case_ids": [case["id"] for case in cases],
             "results": results,
         }

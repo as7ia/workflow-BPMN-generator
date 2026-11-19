@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 from dataclasses import dataclass
@@ -22,6 +23,8 @@ _DEFAULT_MAX_INPUT_CHARS = 12_000
 _DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _DEFAULT_NUM_PREDICT = 4_096
 _DEFAULT_NUM_CTX = 8_192
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaExtractionError(RuntimeError):
@@ -47,6 +50,7 @@ class OllamaSettings:
     num_predict: int = _DEFAULT_NUM_PREDICT
     num_ctx: int = _DEFAULT_NUM_CTX
     think: bool | None = None  # None preserves Ollama default; False disables reasoning
+    repair_invalid_graph: bool = False
 
     def __post_init__(self) -> None:
         parsed = urlparse(self.base_url)
@@ -58,6 +62,8 @@ class OllamaSettings:
             raise ValueError("OLLAMA_MODEL must not be empty")
         if self.think is not None and not isinstance(self.think, bool):
             raise ValueError("OLLAMA_THINK must be true or false")
+        if not isinstance(self.repair_invalid_graph, bool):
+            raise ValueError("OLLAMA_REPAIR_INVALID_GRAPH must be true or false")
         bounded_values = {
             "OLLAMA_TIMEOUT_SECONDS": self.timeout_seconds,
             "OLLAMA_MAX_INPUT_CHARS": self.max_input_chars,
@@ -76,8 +82,12 @@ class OllamaSettings:
         if raw_think is not None and raw_think.lower() not in {"true", "false", "1", "0"}:
             raise ValueError("OLLAMA_THINK must be true or false")
         think = None if raw_think is None else raw_think.lower() in {"true", "1"}
+        raw_repair = os.getenv("OLLAMA_REPAIR_INVALID_GRAPH", "false")
+        if raw_repair.lower() not in {"true", "false", "1", "0"}:
+            raise ValueError("OLLAMA_REPAIR_INVALID_GRAPH must be true or false")
         return cls(
             think=think,
+            repair_invalid_graph=raw_repair.lower() in {"true", "1"},
             base_url=os.getenv("OLLAMA_BASE_URL", _DEFAULT_BASE_URL).rstrip("/"),
             model=os.getenv("OLLAMA_MODEL", _DEFAULT_MODEL),
             timeout_seconds=float(
@@ -230,6 +240,42 @@ def _request_payload(description: str, settings: OllamaSettings) -> dict[str, An
     }
 
 
+def _repair_payload(
+    candidate: Any, issues: list[dict[str, Any]], settings: OllamaSettings
+) -> dict[str, Any]:
+    repair_request = {
+        "original_candidate": candidate,
+        "graph_validation_issues": issues,
+    }
+    prompt = """Repair the supplied ProcessModel JSON so it passes the supplied graph diagnostics.
+Return exactly one JSON object matching ProcessModel schema 1.0, with no explanation.
+Preserve all business activities, participants, decisions, branches, loops, ordering, and messages.
+Make only structural corrections required by the diagnostics. Do not invent, remove, or rename
+business activities, participants, subprocesses, or other business information. In particular,
+do not create a subprocess unless one is already explicitly represented in the candidate.
+Recheck the full schema and graph before responding.
+"""
+    return {
+        "model": settings.model,
+        "stream": False,
+        **({"think": settings.think} if settings.think is not None else {}),
+        "format": ProcessModel.model_json_schema(),
+        "messages": [
+            {"role": "system", "content": prompt},
+            {
+                "role": "user",
+                "content": json.dumps(repair_request, separators=(",", ":")),
+            },
+        ],
+        "options": {
+            "temperature": 0,
+            "seed": 0,
+            "num_predict": settings.num_predict,
+            "num_ctx": settings.num_ctx,
+        },
+    }
+
+
 def _response_content(response: dict[str, Any]) -> str:
     message = response.get("message")
     content = message.get("content") if isinstance(message, dict) else None
@@ -238,6 +284,43 @@ def _response_content(response: dict[str, Any]) -> str:
             "malformed_response", "Ollama response has no message content."
         )
     return content
+
+
+def _parse_candidate(content: str) -> Any:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as error:
+        raise OllamaExtractionError(
+            "malformed_output", "Ollama message content is not valid JSON."
+        ) from error
+
+
+def _validate_candidate(candidate: Any) -> ProcessModel:
+    try:
+        model = ProcessModel.model_validate(candidate)
+    except ValidationError as error:
+        details = [
+            {"location": list(item["loc"]), "type": item["type"]}
+            for item in error.errors()
+        ]
+        raise OllamaExtractionError(
+            "schema_validation_failed",
+            "Ollama output does not match ProcessModel schema 1.0.",
+            details={"issues": details},
+        ) from error
+    try:
+        validate_process_graph(model)
+    except ProcessGraphValidationError as error:
+        details = [
+            {"code": issue.code, "location": list(issue.location)}
+            for issue in error.issues
+        ]
+        raise OllamaExtractionError(
+            "graph_validation_failed",
+            "Ollama output contains an invalid process graph.",
+            details={"issues": details},
+        ) from error
+    return model
 
 
 def extract_process(
@@ -269,39 +352,43 @@ def extract_process(
         max_response_bytes=active_settings.max_response_bytes,
     )
     content = _response_content(response)
-    try:
-        candidate = json.loads(content)
-    except json.JSONDecodeError as error:
-        raise OllamaExtractionError(
-            "malformed_output", "Ollama message content is not valid JSON."
-        ) from error
+    candidate = _parse_candidate(content)
     if isinstance(candidate, dict) and candidate.get("error") == "unsupported_description":
         raise OllamaExtractionError(
             "unsupported_description",
             "Ollama could not represent the description without guessing.",
         )
+    initial_issues: list[dict[str, Any]]
     try:
-        model = ProcessModel.model_validate(candidate)
-    except ValidationError as error:
-        details = [
-            {"location": list(item["loc"]), "type": item["type"]}
-            for item in error.errors()
-        ]
-        raise OllamaExtractionError(
-            "schema_validation_failed",
-            "Ollama output does not match ProcessModel schema 1.0.",
-            details={"issues": details},
-        ) from error
+        return _validate_candidate(candidate)
+    except OllamaExtractionError as initial_error:
+        if initial_error.code != "graph_validation_failed" or not active_settings.repair_invalid_graph:
+            raise
+        initial_issues = initial_error.details["issues"]
+
+    logger.info(
+        "Attempting ProcessModel graph repair; issue_codes=%s",
+        [issue["code"] for issue in initial_issues],
+    )
     try:
-        validate_process_graph(model)
-    except ProcessGraphValidationError as error:
-        details = [
-            {"code": issue.code, "location": list(issue.location)}
-            for issue in error.issues
-        ]
+        repair_response = client.post_json(
+            f"{active_settings.base_url}/api/chat",
+            _repair_payload(candidate, initial_issues, active_settings),
+            timeout_seconds=active_settings.timeout_seconds,
+            max_response_bytes=active_settings.max_response_bytes,
+        )
+        repaired = _parse_candidate(_response_content(repair_response))
+        model = _validate_candidate(repaired)
+    except OllamaExtractionError as repair_error:
+        logger.warning("ProcessModel graph repair failed; code=%s", repair_error.code)
         raise OllamaExtractionError(
-            "graph_validation_failed",
-            "Ollama output contains an invalid process graph.",
-            details={"issues": details},
-        ) from error
+            repair_error.code,
+            str(repair_error),
+            details={
+                **repair_error.details,
+                "repair_attempted": True,
+                "initial_graph_issues": initial_issues,
+            },
+        ) from repair_error
+    logger.info("ProcessModel graph repair succeeded")
     return model

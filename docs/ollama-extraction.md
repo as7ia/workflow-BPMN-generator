@@ -3,7 +3,8 @@
 `app.llm.extract_process()` makes one bounded request to a configured Ollama
 `/api/chat` endpoint. It asks for the current `ProcessModel` JSON Schema and
 then independently performs JSON parsing, Pydantic validation, and deterministic
-graph validation. Invalid output is rejected; it is never repaired.
+graph validation. Invalid output is rejected unless the optional, single graph
+repair attempt is explicitly enabled.
 
 The prompt maps only the supported schema 1.0 concepts: participants, lanes,
 tasks, start and end events, exclusive and parallel gateways, descriptive
@@ -19,6 +20,7 @@ The project does not load `.env` files automatically and stores no credentials.
 |---|---|
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` |
 | `OLLAMA_MODEL` | `qwen3:8b` |
+| `OLLAMA_REPAIR_INVALID_GRAPH` | `false` |
 | `OLLAMA_TIMEOUT_SECONDS` | `60` |
 | `OLLAMA_MAX_INPUT_CHARS` | `12000` |
 | `OLLAMA_MAX_RESPONSE_BYTES` | `2097152` |
@@ -57,6 +59,23 @@ refuse rather than guess, and refusals are returned as
 This adapter does not claim complete BPMN 2.0 coverage. Expanded subprocesses,
 event variants, boundary events, choreography, compensation, executable
 conditions, and other concepts outside schema 1.0 are unsupported.
+
+### Optional graph repair
+
+Set `OLLAMA_REPAIR_INVALID_GRAPH=true` to allow exactly one additional Qwen call
+when the initial candidate passes Pydantic validation but fails graph validation.
+Malformed JSON, schema errors, refusals, and transport failures are never retried.
+The repair request contains the original candidate plus graph diagnostic codes and
+locations, and instructs Qwen to preserve the described business semantics and not
+invent subprocesses. The repaired result must pass the complete Pydantic and graph
+validation sequence or it is refused.
+
+Production logs contain only diagnostic codes and repair outcome, never complete
+candidates. A failed repair includes `repair_attempted`, `initial_graph_issues`, and
+the final safe issue list in structured error details. To compare evaluation runs,
+use `--repair-invalid-graph`; reports record the full settings and set
+`maximum_attempts_per_case` to 1 or 2. Compare error codes, graph validity, semantic
+fidelity, and latency between otherwise identical runs.
 
 ## Tests
 
