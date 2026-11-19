@@ -155,13 +155,41 @@ def test_repair_prompt_keeps_subprocess_boundaries_and_forbids_ambiguous_flows()
     payload = ollama._repair_payload(_fixture(), issues, OllamaSettings())
     prompt = " ".join(payload["messages"][0]["content"].split())
 
+    assert "parent scope and the nested scope as two separate control-flow graphs" in prompt
     assert "subprocess node itself stays in its parent scope" in prompt
-    assert "Sequence flows never cross between parent and nested scopes" in prompt
+    assert "reachable from a start event in that parent scope" in prompt
+    assert "able to reach an end event in that parent scope" in prompt
+    assert "parent graph enters and leaves the subprocess through the subprocess node" in prompt
+    assert "source_ref and target_ref" in prompt and "same scope_id" in prompt
+    assert "Never create a sequence flow from a parent-scope node" in prompt
     assert "every node must be reachable" in prompt
     assert "every node must be able to reach an end event" in prompt
     assert "only when" in prompt and "unambiguous" in prompt
     assert "Never guess a business" in prompt
     assert "Never create a subprocess node merely to fix a scope error" in prompt
+
+
+def test_repair_prompt_allows_only_semantically_neutral_missing_scope_events() -> None:
+    issues = [
+        {"code": "unreachable_from_start", "location": ["nodes", 5]},
+        {"code": "cannot_reach_end", "location": ["nodes", 5]},
+        {"code": "missing_start_event", "location": ["scopes", 1]},
+        {"code": "missing_end_event", "location": ["scopes", 1]},
+    ]
+
+    payload = ollama._repair_payload(_fixture(), issues, OllamaSettings())
+    prompt = " ".join(payload["messages"][0]["content"].split())
+
+    assert "Each scope must contain at least one start_event and at least one end_event" in prompt
+    assert "scope_id and participant_id match that scope" in prompt
+    assert "purely technical start_event or end_event" in prompt
+    assert "only when doing so does not add or change business meaning" in prompt
+    assert "unambiguous existing entry node in the same scope" in prompt
+    assert "unambiguous existing exit node in that scope" in prompt
+    assert "If the entry or exit is ambiguous, do not guess" in prompt
+    assert "not business activities" in prompt
+    request = json.loads(payload["messages"][1]["content"])
+    assert request["graph_validation_issues"] == issues
 
 
 def test_failed_graph_repair_is_refused_after_exactly_two_calls() -> None:

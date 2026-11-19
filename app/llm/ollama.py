@@ -272,16 +272,33 @@ ROOT SCOPE VERSUS NESTED SCOPE:
   one subprocess node. Do not create orphan or duplicate nested scopes.
 
 SUBPROCESS BOUNDARY:
-The subprocess node itself stays in its parent scope and participates in the parent scope's
-sequence flows. The subprocess's internal start event, internal activities, gateways, and
-internal end event belong to its nested scope. Sequence flows never cross between parent and
-nested scopes; connect the parent graph through the subprocess node, and connect the internal
-graph separately inside the nested scope.
+Treat the parent scope and the nested scope as two separate control-flow graphs. The subprocess
+node itself stays in its parent scope. It must be reachable from a start event in that parent
+scope and must be able to reach an end event in that parent scope, using only parent-scope nodes
+and sequence flows. In other words, the parent graph enters and leaves the subprocess through
+the subprocess node; it never connects directly to an internal activity or internal event.
+
+The subprocess's internal start event, internal activities, gateways, and internal end event
+all belong to its nested scope. Connect those internal nodes only to other nodes in that same
+nested scope. A sequence flow's source_ref and target_ref must always resolve to nodes with the
+same scope_id. Never create a sequence flow from a parent-scope node to a nested-scope node, or
+from a nested-scope node to a parent-scope node.
 
 PER-SCOPE CONNECTIVITY:
-Every scope, root or nested, must contain a start_event and an end_event. Within each scope,
-every node must be reachable by same-scope sequence flows from a start event, and every node
-must be able to reach an end event. Preserve existing branches, joins, conditions, and loops.
+Independently inspect every root and nested scope. Each scope must contain at least one
+start_event and at least one end_event whose scope_id and participant_id match that scope.
+Within each scope, every node must be reachable by same-scope sequence flows from a start event,
+and every node must be able to reach an end event. A start event has no incoming sequence flow;
+an end event has no outgoing sequence flow. Preserve existing branches, joins, conditions, and
+loops.
+
+You may add a purely technical start_event or end_event to a scope that is missing one only when
+doing so does not add or change business meaning. Give it a neutral technical name. Connect a
+new start event only to an unambiguous existing entry node in the same scope, and connect an
+unambiguous existing exit node in that scope only to a new end event. These technical events are
+not business activities. Do not use them to invent an activity, branch, condition, loop, or
+ordering. If the entry or exit is ambiguous, do not guess.
+
 Add or redirect a sequence flow only when the candidate's existing ordering, branch condition,
 loop, or subprocess boundary makes the intended connection unambiguous. Never guess a business
 connection, branch, condition, or ordering merely to make the graph connected. If a valid repair
