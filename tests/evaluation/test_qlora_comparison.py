@@ -4,10 +4,15 @@ import json
 from pathlib import Path
 
 from evaluation.compare_qlora_models import (
+    _generate_token_ids,
     assess_content,
     evaluate_cases_with_repair,
     summarize,
     summarize_repair_pipeline,
+)
+from evaluation.constrained_decoding import (
+    compile_process_model_constraint,
+    process_model_decoding_schema,
 )
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
@@ -145,3 +150,98 @@ def test_malformed_generated_repair_is_reported_and_rejected() -> None:
     assert result["repair"]["accepted"] is False
     assert result["repair"]["reason"] == "repaired_candidate_invalid"
     assert result["after_repair"]["error"]["stage"] == "json"
+
+
+def test_process_model_schema_limitations_are_explicit_and_post_validated() -> None:
+    schema, report = process_model_decoding_schema()
+
+    assert schema["$defs"]["Participant"]["properties"]["id"]["pattern"]
+    assert "minLength" not in schema["$defs"]["Participant"]["properties"]["id"]
+    assert report["schema_adaptations"]
+    assert all(
+        item["action"] == "omitted_during_decoding"
+        and item["post_validation"] == "ProcessModel.model_validate"
+        for item in report["schema_adaptations"]
+    )
+    assert "start-to-end reachability within each scope" in report["post_validation_only"]
+
+
+def test_constraint_is_compiled_and_injected_as_a_generation_logits_processor() -> None:
+    calls = {}
+
+    class FakeTokenizerInfo:
+        @staticmethod
+        def from_huggingface(tokenizer, *, vocab_size):
+            calls["tokenizer"] = tokenizer
+            calls["vocab_size"] = vocab_size
+            return "tokenizer-info"
+
+    class FakeCompiler:
+        def __init__(self, tokenizer_info):
+            assert tokenizer_info == "tokenizer-info"
+
+        def compile_json_schema(self, schema):
+            calls["schema"] = json.loads(schema)
+            return "compiled-grammar"
+
+    class FakeLogitsProcessor:
+        def __init__(self, grammar):
+            calls["grammar"] = grammar
+
+        def __call__(self, input_ids, scores):
+            calls["processor_called"] = True
+            return "masked-scores"
+
+    class Namespace:
+        pass
+
+    fake_xgrammar = Namespace()
+    fake_xgrammar.TokenizerInfo = FakeTokenizerInfo
+    fake_xgrammar.GrammarCompiler = FakeCompiler
+    fake_xgrammar.contrib = Namespace()
+    fake_xgrammar.contrib.hf = Namespace()
+    fake_xgrammar.contrib.hf.LogitsProcessor = FakeLogitsProcessor
+
+    constraint = compile_process_model_constraint(
+        "qwen-tokenizer", 151936, xgrammar_module=fake_xgrammar
+    )
+    class FakeModel:
+        def generate(self, **kwargs):
+            calls["generate_kwargs"] = kwargs
+            return "generated-tokens"
+
+    output = _generate_token_ids(
+        FakeModel(),
+        {"input_ids": "prompt-tokens"},
+        max_new_tokens=4096,
+        pad_token_id=151645,
+        constraint=constraint,
+    )
+    processor = calls["generate_kwargs"]["logits_processor"][0]
+
+    assert output == "generated-tokens"
+    assert calls["generate_kwargs"]["input_ids"] == "prompt-tokens"
+    assert calls["generate_kwargs"]["do_sample"] is False
+    assert calls["vocab_size"] == 151936
+    assert calls["schema"]["properties"]["schema_version"]["const"] == "1.0"
+    assert processor("tokens-so-far", "raw-scores") == "masked-scores"
+    assert calls["processor_called"] is True
+
+
+def test_legacy_generation_does_not_install_a_logits_processor() -> None:
+    calls = {}
+
+    class FakeModel:
+        def generate(self, **kwargs):
+            calls.update(kwargs)
+            return "generated-tokens"
+
+    _generate_token_ids(
+        FakeModel(),
+        {"input_ids": "prompt-tokens"},
+        max_new_tokens=20,
+        pad_token_id=0,
+        constraint=None,
+    )
+
+    assert "logits_processor" not in calls

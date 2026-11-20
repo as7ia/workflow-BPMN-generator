@@ -20,10 +20,33 @@ from app.domain import ProcessGraphValidationError, ProcessModel, validate_proce
 from app.llm.ollama import OllamaSettings, _repair_payload, _system_prompt
 from app.services import generate_bpmn
 from evaluation.controlled_repair import apply_safe_deterministic_repairs
+from evaluation.constrained_decoding import (
+    ProcessModelConstraint,
+    compile_process_model_constraint,
+)
 from evaluation.scoring import score_candidate
 from training.train_qlora_kaggle import precision_for_compute_capability
 
 CORPUS = ROOT / "evaluation" / "corpus.json"
+
+
+def _generate_token_ids(
+    model: Any,
+    inputs: dict[str, Any],
+    *,
+    max_new_tokens: int,
+    pad_token_id: int,
+    constraint: ProcessModelConstraint | None,
+) -> Any:
+    """Call generate with a fresh token-level constraint processor when enabled."""
+    constrained_kwargs = constraint.generation_kwargs() if constraint is not None else {}
+    return model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        pad_token_id=pad_token_id,
+        **constrained_kwargs,
+    )
 
 
 def assess_content(
@@ -333,7 +356,14 @@ def _load_generator(
     adapter: Path | None,
     *,
     max_new_tokens: int,
-) -> tuple[Callable[[str], str], Callable[[list[dict[str, str]]], str], Any, Any]:
+    constrained_decoding: bool = False,
+) -> tuple[
+    Callable[[str], str],
+    Callable[[list[dict[str, str]]], str],
+    Any,
+    Any,
+    dict[str, Any],
+]:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -355,11 +385,19 @@ def _load_generator(
         device_map={"": device_index},
         trust_remote_code=False,
     )
+    model_vocab_size = model.config.vocab_size
     if adapter is not None:
         from peft import PeftModel
 
         model = PeftModel.from_pretrained(model, adapter)
     model.eval()
+    constraint: ProcessModelConstraint | None = None
+    constraint_report: dict[str, Any] = {"enabled": False}
+    if constrained_decoding:
+        constraint = compile_process_model_constraint(
+            tokenizer, vocab_size=model_vocab_size
+        )
+        constraint_report = constraint.report
 
     def generate_messages(messages: list[dict[str, str]]) -> str:
         try:
@@ -375,11 +413,12 @@ def _load_generator(
             )
         inputs = tokenizer(text, return_tensors="pt").to(model.device)
         with torch.inference_mode():
-            output = model.generate(
-                **inputs,
+            output = _generate_token_ids(
+                model,
+                inputs,
                 max_new_tokens=max_new_tokens,
-                do_sample=False,
                 pad_token_id=tokenizer.eos_token_id,
+                constraint=constraint,
             )
         generated = output[0, inputs["input_ids"].shape[1] :]
         return tokenizer.decode(generated, skip_special_tokens=True).strip()
@@ -390,7 +429,7 @@ def _load_generator(
             {"role": "user", "content": description},
         ])
 
-    return generate, generate_messages, model, tokenizer
+    return generate, generate_messages, model, tokenizer, constraint_report
 
 
 def _arguments() -> argparse.Namespace:
@@ -401,6 +440,11 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=Path("evaluation/results/qlora-comparison.json"))
     parser.add_argument("--max-new-tokens", type=int, default=4096)
     parser.add_argument("--with-layout", action="store_true")
+    parser.add_argument(
+        "--constrained-decoding",
+        action="store_true",
+        help="mask generation logits with the ProcessModel JSON Schema via XGrammar",
+    )
     parser.add_argument(
         "--repair-invalid",
         action="store_true",
@@ -422,8 +466,11 @@ def main() -> int:
     cases = json.loads(CORPUS.read_text(encoding="utf-8"))["cases"]
     runs: dict[str, Any] = {}
     for label, adapter in (("base", None), ("fine_tuned", args.adapter)):
-        generate, generate_messages, model, tokenizer = _load_generator(
-            args.model, adapter, max_new_tokens=args.max_new_tokens
+        generate, generate_messages, model, tokenizer, constraint_report = _load_generator(
+            args.model,
+            adapter,
+            max_new_tokens=args.max_new_tokens,
+            constrained_decoding=args.constrained_decoding,
         )
         repair = None
         if args.repair_invalid:
@@ -466,7 +513,11 @@ def main() -> int:
         "adapter": str(args.adapter.resolve()),
         "reserved_corpus": str(CORPUS.resolve()),
         "case_ids": [case["id"] for case in cases],
-        "generation": {"do_sample": False, "max_new_tokens": args.max_new_tokens},
+        "generation": {
+            "do_sample": False,
+            "max_new_tokens": args.max_new_tokens,
+            "constrained_decoding": constraint_report,
+        },
         "with_layout": args.with_layout,
         "repair_invalid": args.repair_invalid,
         "maximum_generation_attempts_per_case": 2 if args.repair_invalid else 1,

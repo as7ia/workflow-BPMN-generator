@@ -114,6 +114,43 @@ python evaluation/compare_qlora_models.py \
   --output /kaggle/working/qlora-comparison.json
 ```
 
+To run the same comparison with token-level ProcessModel JSON constraints,
+install the pinned evaluation dependency and add `--constrained-decoding`:
+
+```bash
+python -m pip install -r training/requirements-kaggle.txt
+CUDA_VISIBLE_DEVICES=0 python evaluation/compare_qlora_models.py \
+  --confirm-gpu-evaluation \
+  --model Qwen/Qwen3-8B \
+  --adapter /kaggle/working/qwen3-8b-processmodel/adapter-final \
+  --constrained-decoding \
+  --max-new-tokens 4096 \
+  --output /kaggle/working/qlora-comparison-constrained.json
+```
+
+This mode compiles `ProcessModel.model_json_schema()` with XGrammar and passes
+a fresh logits processor to every `model.generate()` call. The report lists
+every schema adaptation and the graph or semantic rules that remain
+post-generation checks. In particular, XGrammar 0.2.x cannot enforce
+`minLength` together with `pattern`; those `minLength` keywords are explicitly
+listed as decoding adaptations and remain enforced by Pydantic. The identifier
+patterns themselves already require a non-empty first character. The default
+mode does not create a logits processor, so it remains the unconstrained
+baseline.
+
+Constraints can also be combined with the existing single repair attempt:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python evaluation/compare_qlora_models.py \
+  --confirm-gpu-evaluation \
+  --model Qwen/Qwen3-8B \
+  --adapter /kaggle/working/qwen3-8b-processmodel/adapter-final \
+  --constrained-decoding \
+  --repair-invalid \
+  --max-new-tokens 4096 \
+  --output /kaggle/working/qlora-comparison-constrained-with-repair.json
+```
+
 To measure the same generations with at most one controlled repair attempt for
 each schema-invalid or graph-invalid JSON candidate, add `--repair-invalid`:
 
