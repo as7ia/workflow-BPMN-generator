@@ -192,6 +192,11 @@ def test_repair_prompt_keeps_subprocess_boundaries_and_forbids_ambiguous_flows()
     assert "only when" in prompt and "unambiguous" in prompt
     assert "Never guess a business" in prompt
     assert "Never create a subprocess node merely to fix a scope error" in prompt
+    assert "Never emit parent_lane_id" in prompt
+    assert "Never emit an object, array, or number in a reference field" in prompt
+    assert "If several targets are possible, do not guess" in prompt
+    assert "default_flow_id must equal the id" in prompt
+    assert "exactly one existing outgoing flow is unconditional" in prompt
 
 
 def test_repair_prompt_allows_only_semantically_neutral_missing_scope_events() -> None:

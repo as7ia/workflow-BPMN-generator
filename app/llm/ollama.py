@@ -309,6 +309,23 @@ and every node must be able to reach an end event. A start event has no incoming
 an end event has no outgoing sequence flow. Preserve existing branches, joins, conditions, and
 loops.
 
+SCHEMA EXACTNESS AND REFERENCES:
+- Emit only fields declared by the supplied ProcessModel schema. Never emit parent_lane_id.
+- A Lane object has only id, name, and participant_id. lane_id is permitted on a process node,
+  not on a Lane, Participant, ProcessScope, SequenceFlow, or MessageFlow object.
+- Every participant_id, lane_id, scope_id, parent_scope_id, subprocess_node_id,
+  default_flow_id, source_ref, and target_ref value must be either a JSON string or null when
+  the schema permits null. Never emit an object, array, or number in a reference field.
+- Copy an existing ID string exactly. Change a reference only when exactly one existing element
+  of the required type is the valid target. If several targets are possible, do not guess.
+
+EXCLUSIVE GATEWAY DEFAULTS:
+An exclusive gateway's default_flow_id must equal the id of one of that gateway's existing
+outgoing sequence flows. That selected default flow must have condition=null; every other
+outgoing branch must keep its explicit condition. If exactly one existing outgoing flow is
+unconditional, it is the only safe default. Never add, remove, merge, or retarget a business
+branch merely to repair default_flow_id.
+
 You may add a purely technical start_event or end_event to a scope that is missing one only when
 doing so does not add or change business meaning. Give it a neutral technical name. Connect a
 new start event only to an unambiguous existing entry node in the same scope, and connect an

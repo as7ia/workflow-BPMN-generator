@@ -136,6 +136,16 @@ subprocesses pass. Malformed non-JSON output is not repaired. Semantic means
 remain conditional on valid graphs, so the report also records the number and
 rate of cases included in that mean.
 
+Before and after the single model-generated repair, the evaluator also applies
+a conservative deterministic pass. It may remove an undeclared field only
+when its value is `null`, unwrap a reference only from an exact `{"id":"..."}`
+object whose ID exists in the required collection, or replace an invalid XOR
+`default_flow_id` only when exactly one existing outgoing flow is
+unconditional. Non-null undeclared fields, ambiguous references, disconnected
+components, and malformed JSON are reported and left unchanged. The summary
+separates deterministic changes, generated repair attempts, accepted repairs,
+and total rejected invalid cases.
+
 Add `--with-layout` only when Node.js and the pinned layout worker dependencies
 are installed in the Kaggle environment. The comparison records strict JSON
 and schema validity, `validate_process_graph` validity, optional BPMN DI result,

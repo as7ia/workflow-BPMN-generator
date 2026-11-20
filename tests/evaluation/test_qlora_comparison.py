@@ -131,3 +131,17 @@ def test_valid_repair_is_rejected_when_required_business_activity_disappears() -
     assert result["repair"]["reason"] == "business_preservation_failed"
     assert result["effective_after_repair"]["graph_valid"] is False
     assert result["repair"]["business_preservation"]["failures"][0]["code"] == "missing_business_activities"
+
+
+def test_malformed_generated_repair_is_reported_and_rejected() -> None:
+    invalid = (FIXTURES / "invalid_dangling_sequence_flow.json").read_text(encoding="utf-8")
+
+    result = evaluate_cases_with_repair(
+        [_case()], lambda _: invalid, repair=lambda *_: "{broken",
+        with_layout=False,
+    )[0]
+
+    assert result["repair"]["attempted"] is True
+    assert result["repair"]["accepted"] is False
+    assert result["repair"]["reason"] == "repaired_candidate_invalid"
+    assert result["after_repair"]["error"]["stage"] == "json"

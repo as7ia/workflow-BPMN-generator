@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from app.domain import ProcessGraphValidationError, ProcessModel, validate_process_graph
 from app.llm.ollama import OllamaSettings, _repair_payload, _system_prompt
 from app.services import generate_bpmn
+from evaluation.controlled_repair import apply_safe_deterministic_repairs
 from evaluation.scoring import score_candidate
 from training.train_qlora_kaggle import precision_for_compute_capability
 
@@ -144,6 +145,8 @@ def evaluate_cases_with_repair(
             "category": case["category"],
             "before_repair": before,
             "after_repair": None,
+            "deterministic_before_generation": None,
+            "deterministic_after_generation": None,
             "repair": {
                 "attempted": False,
                 "validation_stage": None,
@@ -163,15 +166,53 @@ def evaluate_cases_with_repair(
                 except json.JSONDecodeError:
                     record["repair"]["reason"] = "initial_candidate_not_json"
                 else:
-                    issues = error.get("issues", [])
+                    normalized, deterministic = apply_safe_deterministic_repairs(
+                        candidate
+                    )
+                    record["deterministic_before_generation"] = deterministic
+                    normalized_content = json.dumps(normalized, separators=(",", ":"))
+                    normalized_assessment = assess_content(
+                        normalized_content,
+                        case["expected"],
+                        with_layout=with_layout,
+                    )
+                    if normalized_assessment["graph_valid"] is True:
+                        normalized_model = ProcessModel.model_validate(normalized)
+                        preservation = business_preservation_check(
+                            normalized_model, case["expected"]
+                        )
+                        record["after_repair"] = normalized_assessment
+                        record["repair"]["business_preservation"] = preservation
+                        if preservation["passed"]:
+                            record["repair"].update({
+                                "accepted": True,
+                                "reason": "deterministic_repair_validated_and_business_preserved",
+                            })
+                        else:
+                            record["repair"]["reason"] = "business_preservation_failed"
+                        record["effective_after_repair"] = (
+                            normalized_assessment
+                            if record["repair"]["accepted"]
+                            else before
+                        )
+                        results.append(record)
+                        continue
+                    normalized_error = normalized_assessment.get("error") or {}
+                    normalized_stage = normalized_error.get("stage")
+                    if normalized_stage not in {"schema", "graph"}:
+                        record["repair"]["reason"] = "deterministic_result_not_repairable"
+                        record["effective_after_repair"] = before
+                        results.append(record)
+                        continue
+                    issues = normalized_error.get("issues", [])
                     record["repair"].update({
                         "attempted": True,
-                        "validation_stage": stage,
+                        "validation_stage": normalized_stage,
                         "reason": None,
                     })
                     try:
                         repaired_content = repair(
-                            case["description"], candidate, stage, issues
+                            case["description"], normalized, normalized_stage, issues
                         )
                     except Exception as repair_error:
                         record["repair"].update({
@@ -181,13 +222,27 @@ def evaluate_cases_with_repair(
                         record["effective_after_repair"] = before
                         results.append(record)
                         continue
+                    try:
+                        generated_candidate = json.loads(repaired_content)
+                    except json.JSONDecodeError:
+                        normalized_generated_content = repaired_content
+                    else:
+                        generated_candidate, generated_deterministic = (
+                            apply_safe_deterministic_repairs(generated_candidate)
+                        )
+                        record["deterministic_after_generation"] = generated_deterministic
+                        normalized_generated_content = json.dumps(
+                            generated_candidate, separators=(",", ":")
+                        )
                     after = assess_content(
-                        repaired_content, case["expected"], with_layout=with_layout
+                        normalized_generated_content,
+                        case["expected"],
+                        with_layout=with_layout,
                     )
                     record["after_repair"] = after
                     if after["graph_valid"] is True:
                         repaired_model = ProcessModel.model_validate(
-                            json.loads(repaired_content)
+                            json.loads(normalized_generated_content)
                         )
                         preservation = business_preservation_check(
                             repaired_model, case["expected"]
@@ -214,14 +269,36 @@ def evaluate_cases_with_repair(
 def summarize_repair_pipeline(results: list[dict[str, Any]]) -> dict[str, Any]:
     before = summarize([item["before_repair"] for item in results])
     after = summarize([item["effective_after_repair"] for item in results])
+    initially_invalid = sum(
+        item["before_repair"]["graph_valid"] is not True for item in results
+    )
+    accepted = sum(item["repair"]["accepted"] for item in results)
     return {
         "before_repair": before,
         "after_repair": after,
+        "initially_invalid": initially_invalid,
         "repair_attempted": sum(item["repair"]["attempted"] for item in results),
-        "repair_accepted": sum(item["repair"]["accepted"] for item in results),
+        "generation_repair_attempted": sum(
+            item["repair"]["attempted"] for item in results
+        ),
+        "repair_accepted": accepted,
         "repair_rejected": sum(
             item["repair"]["attempted"] and not item["repair"]["accepted"]
             for item in results
+        ),
+        "repair_rejected_total": initially_invalid - accepted,
+        "deterministic_repair_accepted": sum(
+            item["repair"]["reason"]
+            == "deterministic_repair_validated_and_business_preserved"
+            for item in results
+        ),
+        "deterministic_changes": sum(
+            len((item.get(key) or {}).get("changes", []))
+            for item in results
+            for key in (
+                "deterministic_before_generation",
+                "deterministic_after_generation",
+            )
         ),
     }
 
