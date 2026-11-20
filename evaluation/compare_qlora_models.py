@@ -17,9 +17,10 @@ if str(ROOT) not in sys.path:
 from pydantic import ValidationError
 
 from app.domain import ProcessGraphValidationError, ProcessModel, validate_process_graph
-from app.llm.ollama import _system_prompt
+from app.llm.ollama import OllamaSettings, _repair_payload, _system_prompt
 from app.services import generate_bpmn
 from evaluation.scoring import score_candidate
+from training.train_qlora_kaggle import precision_for_compute_capability
 
 CORPUS = ROOT / "evaluation" / "corpus.json"
 
@@ -96,6 +97,135 @@ def evaluate_cases(
     return results
 
 
+def business_preservation_check(
+    model: ProcessModel, expected: dict[str, Any]
+) -> dict[str, Any]:
+    """Reject a valid repair that loses any reserved business requirement."""
+    fidelity = score_candidate(model, expected)
+    categories = fidelity["categories"]
+    required_categories = (
+        "participants_and_lanes",
+        "gateway_types_and_branches",
+        "parallel_split_join",
+        "loop_preservation",
+        "message_flow_direction",
+        "subprocess_nesting",
+    )
+    failures = []
+    if fidelity["missing_activities"]:
+        failures.append({
+            "code": "missing_business_activities",
+            "values": fidelity["missing_activities"],
+        })
+    for category in required_categories:
+        if categories[category] < 1.0:
+            failures.append({
+                "code": "business_requirement_not_preserved",
+                "category": category,
+                "score": categories[category],
+            })
+    return {"passed": not failures, "failures": failures, "fidelity": fidelity}
+
+
+def evaluate_cases_with_repair(
+    cases: list[dict[str, Any]],
+    generate: Callable[[str], str],
+    *,
+    repair: Callable[[str, Any, str, list[dict[str, Any]]], str] | None,
+    with_layout: bool,
+) -> list[dict[str, Any]]:
+    """Measure initial output and at most one fully revalidated repair attempt."""
+    results: list[dict[str, Any]] = []
+    for case in cases:
+        content = generate(case["description"])
+        before = assess_content(content, case["expected"], with_layout=with_layout)
+        record: dict[str, Any] = {
+            "id": case["id"],
+            "category": case["category"],
+            "before_repair": before,
+            "after_repair": None,
+            "repair": {
+                "attempted": False,
+                "validation_stage": None,
+                "accepted": False,
+                "reason": "not_needed" if before["graph_valid"] is True else "disabled",
+                "business_preservation": None,
+            },
+        }
+        error = before.get("error") or {}
+        stage = error.get("stage")
+        if repair is not None and before["graph_valid"] is not True:
+            if stage not in {"schema", "graph"}:
+                record["repair"]["reason"] = "unsupported_initial_failure_stage"
+            else:
+                try:
+                    candidate = json.loads(content)
+                except json.JSONDecodeError:
+                    record["repair"]["reason"] = "initial_candidate_not_json"
+                else:
+                    issues = error.get("issues", [])
+                    record["repair"].update({
+                        "attempted": True,
+                        "validation_stage": stage,
+                        "reason": None,
+                    })
+                    try:
+                        repaired_content = repair(
+                            case["description"], candidate, stage, issues
+                        )
+                    except Exception as repair_error:
+                        record["repair"].update({
+                            "reason": "repair_generation_failed",
+                            "error_type": type(repair_error).__name__,
+                        })
+                        record["effective_after_repair"] = before
+                        results.append(record)
+                        continue
+                    after = assess_content(
+                        repaired_content, case["expected"], with_layout=with_layout
+                    )
+                    record["after_repair"] = after
+                    if after["graph_valid"] is True:
+                        repaired_model = ProcessModel.model_validate(
+                            json.loads(repaired_content)
+                        )
+                        preservation = business_preservation_check(
+                            repaired_model, case["expected"]
+                        )
+                        record["repair"]["business_preservation"] = preservation
+                        if preservation["passed"]:
+                            record["repair"].update({
+                                "accepted": True,
+                                "reason": "validated_and_business_preserved",
+                            })
+                        else:
+                            record["repair"]["reason"] = "business_preservation_failed"
+                    else:
+                        record["repair"]["reason"] = "repaired_candidate_invalid"
+        record["effective_after_repair"] = (
+            record["after_repair"]
+            if record["repair"]["accepted"]
+            else before
+        )
+        results.append(record)
+    return results
+
+
+def summarize_repair_pipeline(results: list[dict[str, Any]]) -> dict[str, Any]:
+    before = summarize([item["before_repair"] for item in results])
+    after = summarize([item["effective_after_repair"] for item in results])
+    return {
+        "before_repair": before,
+        "after_repair": after,
+        "repair_attempted": sum(item["repair"]["attempted"] for item in results),
+        "repair_accepted": sum(item["repair"]["accepted"] for item in results),
+        "repair_rejected": sum(
+            item["repair"]["attempted"] and not item["repair"]["accepted"]
+            for item in results
+        ),
+    }
+
+
 def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     count = len(results)
     semantic = [
@@ -112,7 +242,12 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             if any(item["di_valid"] is not None for item in results)
             else None
         ),
+        "semantic_scored_cases": len(semantic),
+        "semantic_coverage_rate": len(semantic) / count,
         "mean_semantic_fidelity": sum(semantic) / len(semantic) if semantic else None,
+        "mean_semantic_fidelity_on_valid_graphs": (
+            sum(semantic) / len(semantic) if semantic else None
+        ),
     }
 
 
@@ -121,21 +256,26 @@ def _load_generator(
     adapter: Path | None,
     *,
     max_new_tokens: int,
-) -> tuple[Callable[[str], str], Any, Any]:
+) -> tuple[Callable[[str], str], Callable[[list[dict[str, str]]], str], Any, Any]:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=False)
+    device_index = torch.cuda.current_device()
+    properties = torch.cuda.get_device_properties(device_index)
+    precision = precision_for_compute_capability(properties.major, properties.minor)
     quantization = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
+        bnb_4bit_compute_dtype=(
+            torch.bfloat16 if precision == "bf16" else torch.float16
+        ),
     )
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=quantization,
-        device_map="auto",
+        device_map={"": device_index},
         trust_remote_code=False,
     )
     if adapter is not None:
@@ -144,11 +284,7 @@ def _load_generator(
         model = PeftModel.from_pretrained(model, adapter)
     model.eval()
 
-    def generate(description: str) -> str:
-        messages = [
-            {"role": "system", "content": _system_prompt()},
-            {"role": "user", "content": description},
-        ]
+    def generate_messages(messages: list[dict[str, str]]) -> str:
         try:
             text = tokenizer.apply_chat_template(
                 messages,
@@ -171,7 +307,13 @@ def _load_generator(
         generated = output[0, inputs["input_ids"].shape[1] :]
         return tokenizer.decode(generated, skip_special_tokens=True).strip()
 
-    return generate, model, tokenizer
+    def generate(description: str) -> str:
+        return generate_messages([
+            {"role": "system", "content": _system_prompt()},
+            {"role": "user", "content": description},
+        ])
+
+    return generate, generate_messages, model, tokenizer
 
 
 def _arguments() -> argparse.Namespace:
@@ -182,6 +324,11 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=Path("evaluation/results/qlora-comparison.json"))
     parser.add_argument("--max-new-tokens", type=int, default=4096)
     parser.add_argument("--with-layout", action="store_true")
+    parser.add_argument(
+        "--repair-invalid",
+        action="store_true",
+        help="allow exactly one controlled repair for schema or graph failures",
+    )
     return parser.parse_args()
 
 
@@ -198,12 +345,42 @@ def main() -> int:
     cases = json.loads(CORPUS.read_text(encoding="utf-8"))["cases"]
     runs: dict[str, Any] = {}
     for label, adapter in (("base", None), ("fine_tuned", args.adapter)):
-        generate, model, tokenizer = _load_generator(
+        generate, generate_messages, model, tokenizer = _load_generator(
             args.model, adapter, max_new_tokens=args.max_new_tokens
         )
-        results = evaluate_cases(cases, generate, with_layout=args.with_layout)
-        runs[label] = {"summary": summarize(results), "results": results}
-        del generate, model, tokenizer
+        repair = None
+        if args.repair_invalid:
+            repair_settings = OllamaSettings(
+                model=args.model,
+                num_predict=args.max_new_tokens,
+            )
+
+            def repair(
+                description: str,
+                candidate: Any,
+                stage: str,
+                issues: list[dict[str, Any]],
+            ) -> str:
+                payload = _repair_payload(
+                    description,
+                    candidate,
+                    issues,
+                    repair_settings,
+                    validation_stage=stage,
+                )
+                return generate_messages(payload["messages"])
+
+        results = evaluate_cases_with_repair(
+            cases,
+            generate,
+            repair=repair,
+            with_layout=args.with_layout,
+        )
+        runs[label] = {
+            "summary": summarize_repair_pipeline(results),
+            "results": results,
+        }
+        del generate, generate_messages, model, tokenizer
         gc.collect()
         torch.cuda.empty_cache()
     report = {
@@ -214,6 +391,8 @@ def main() -> int:
         "case_ids": [case["id"] for case in cases],
         "generation": {"do_sample": False, "max_new_tokens": args.max_new_tokens},
         "with_layout": args.with_layout,
+        "repair_invalid": args.repair_invalid,
+        "maximum_generation_attempts_per_case": 2 if args.repair_invalid else 1,
         "runs": runs,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

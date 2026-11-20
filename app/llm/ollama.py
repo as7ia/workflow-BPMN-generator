@@ -245,13 +245,21 @@ def _repair_payload(
     candidate: Any,
     issues: list[dict[str, Any]],
     settings: OllamaSettings,
+    *,
+    validation_stage: str = "graph",
 ) -> dict[str, Any]:
+    if validation_stage not in {"schema", "graph"}:
+        raise ValueError("validation_stage must be schema or graph")
     repair_request = {
         "original_description": description,
         "original_candidate": candidate,
-        "graph_validation_issues": issues,
+        **(
+            {"graph_validation_issues": issues}
+            if validation_stage == "graph"
+            else {"schema_validation_issues": issues}
+        ),
     }
-    prompt = """Repair the supplied ProcessModel JSON using the diagnostics and rules below.
+    prompt = """Repair the supplied ProcessModel JSON using the schema or graph diagnostics and rules below.
 Return exactly one JSON object matching ProcessModel schema 1.0, with no explanation.
 
 PRESERVE BUSINESS MEANING:
@@ -314,7 +322,8 @@ connection, branch, condition, or ordering merely to make the graph connected. I
 would require an ambiguous business connection, do not invent one; the result will be rejected.
 
 FINAL CHECK:
-Recheck the complete schema, participant root scopes, nested-scope pairs, subprocess ownership,
+First correct every supplied schema diagnostic without adding undeclared fields. Then recheck
+the complete schema, participant root scopes, nested-scope pairs, subprocess ownership,
 same-scope sequence flows, and reachability in every scope before responding.
 """
     return {

@@ -53,6 +53,18 @@ python training/build_supervised_dataset.py
 python training/train_qlora_kaggle.py --preflight-only
 ```
 
+For the synthetic split and Qwen tokenizer, validate every full conversation
+before allocating the model. This command fails instead of truncating any BPMN
+assistant response:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python training/train_qlora_kaggle.py \
+  --train-file training/artifacts/synthetic/train.jsonl \
+  --validation-file training/artifacts/synthetic/validation.jsonl \
+  --max-seq-length 8192 \
+  --validate-data-only
+```
+
 Do not proceed unless the preflight reports non-empty train/validation data,
 all package versions, `cuda.available: true`, and the actual GPU name and
 memory. A typical Transformers run is:
@@ -61,6 +73,27 @@ memory. A typical Transformers run is:
 python training/train_qlora_kaggle.py \
   --backend transformers \
   --model Qwen/Qwen3-8B \
+  --max-seq-length 8192 \
+  --output /kaggle/working/qwen3-8b-processmodel
+```
+
+On a Tesla T4 (CUDA compute capability 7.5), the script selects FP16 even if a
+PyTorch BF16 capability probe returns true. Ampere or newer devices may use
+BF16. The Transformers backend pins one visible CUDA device, uses NF4 double
+quantization, SDPA, non-reentrant gradient checkpointing, paged 8-bit AdamW,
+batch size 1, gradient accumulation 8, and Liger's maintained fused linear
+cross-entropy integration. The fused loss avoids materializing the full
+sequence-by-vocabulary logits tensor that caused the original loss-time OOM.
+The Kaggle command should expose only one T4 explicitly:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python training/train_qlora_kaggle.py \
+  --backend transformers \
+  --model Qwen/Qwen3-8B \
+  --train-file training/artifacts/synthetic/train.jsonl \
+  --validation-file training/artifacts/synthetic/validation.jsonl \
+  --batch-size 1 \
+  --gradient-accumulation 8 \
   --max-seq-length 8192 \
   --output /kaggle/working/qwen3-8b-processmodel
 ```
@@ -80,6 +113,28 @@ python evaluation/compare_qlora_models.py \
   --adapter /kaggle/working/qwen3-8b-processmodel/adapter-final \
   --output /kaggle/working/qlora-comparison.json
 ```
+
+To measure the same generations with at most one controlled repair attempt for
+each schema-invalid or graph-invalid JSON candidate, add `--repair-invalid`:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python evaluation/compare_qlora_models.py \
+  --confirm-gpu-evaluation \
+  --model Qwen/Qwen3-8B \
+  --adapter /kaggle/working/qwen3-8b-processmodel/adapter-final \
+  --repair-invalid \
+  --max-new-tokens 4096 \
+  --output /kaggle/working/qlora-comparison-with-repair.json
+```
+
+The report keeps `before_repair`, the raw `after_repair` assessment, the
+effective accepted result, schema/graph diagnostics, and a business
+preservation decision for every case. A repaired candidate is accepted only
+after Pydantic, `validate_process_graph`, and all reserved semantic requirements
+for activities, participants/lanes, gateways/branches, loops, messages, and
+subprocesses pass. Malformed non-JSON output is not repaired. Semantic means
+remain conditional on valid graphs, so the report also records the number and
+rate of cases included in that mean.
 
 Add `--with-layout` only when Node.js and the pinned layout worker dependencies
 are installed in the Kaggle environment. The comparison records strict JSON

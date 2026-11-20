@@ -153,6 +153,22 @@ def test_repair_prompt_encodes_exact_root_and_nested_scope_invariants() -> None:
     assert request["graph_validation_issues"] == issues
 
 
+def test_repair_payload_accepts_schema_diagnostics_without_mislabeling_them() -> None:
+    issues = [{"location": ["nodes", 0, "lane_id"], "type": "extra_forbidden"}]
+
+    payload = ollama._repair_payload(
+        "A clerk reviews an application.",
+        {"schema_version": "1.0"},
+        issues,
+        OllamaSettings(),
+        validation_stage="schema",
+    )
+    request = json.loads(payload["messages"][1]["content"])
+
+    assert request["schema_validation_issues"] == issues
+    assert "graph_validation_issues" not in request
+
+
 def test_repair_prompt_keeps_subprocess_boundaries_and_forbids_ambiguous_flows() -> None:
     issues = [
         {"code": "unreachable_from_start", "location": ["nodes", 2]},
